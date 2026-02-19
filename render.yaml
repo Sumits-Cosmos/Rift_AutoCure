@@ -46,11 +46,9 @@ services:
       - key: STORAGE_DIR
         value: ./storage
 
-  # ─── React/Vite Frontend (Static Site) ──────────────────────────────────────
-  - type: web
-    name: cognitest-frontend
-    runtime: static
-    plan: free
+# ─── React/Vite Frontend (Static Site) ────────────────────────────────────────
+staticSites:
+  - name: cognitest-frontend
     rootDir: frontend
     buildCommand: npm install --legacy-peer-deps && npm run build
     staticPublishPath: dist
