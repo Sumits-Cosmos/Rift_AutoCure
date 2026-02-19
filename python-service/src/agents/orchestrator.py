@@ -50,8 +50,9 @@ class OrchestratorAgent:
       5. Write results & return
     """
 
-    def __init__(self, retry_limit: int = 5):
+    def __init__(self, retry_limit: int = 5, log_callback=None):
         self.retry_limit = retry_limit
+        self._log = log_callback or (lambda msg, level="info": None)
         self.analyzer = RepoAnalyzerAgent()
         self.runner = TestRunnerAgent()
         self.classifier = FailureClassifierAgent()
@@ -73,25 +74,35 @@ class OrchestratorAgent:
             state.branch_name = self._make_branch_name(team_name, leader_name)
 
             # ── Step 1: Clone ──────────────────────────────────────────────
+            self._log(f"Cloning repository: {repo_url}")
             logger.info(f"[OrchestratorAgent] Cloning {repo_url} into {tmp_dir}")
             clone_ok = self._clone_repo(repo_url, tmp_dir)
             if not clone_ok:
                 state.final_status = "FAILED"
                 state.error_message = f"Failed to clone repository: {repo_url}"
+                self._log(f"❌ Clone failed for {repo_url}", "error")
                 return self._build_result(state)
 
+            self._log(f"✅ Repository cloned successfully")
+            self._log(f"Creating branch: {state.branch_name}")
             logger.info(f"[OrchestratorAgent] Creating branch: {state.branch_name}")
             self._create_branch(tmp_dir, state.branch_name)
+            self._log(f"✅ Branch '{state.branch_name}' created")
 
             # ── Step 2: Analyze repo ───────────────────────────────────────
+            self._log("Analyzing repository structure (language, framework, test files)...")
             state = self.analyzer.run(state)
+            self._log(f"✅ Detected: language={state.language}, framework={state.test_framework}, module={state.module_system or 'N/A'}")
 
             # ── Step 3: Check / generate test files ────────────────────────
+            self._log("Checking for existing test files...")
             has_tests = self._has_test_files(state)
             if not has_tests:
+                self._log("⚠ No test files found — attempting to generate placeholder tests...", "warn")
                 generated = self._generate_placeholder_tests(state)
                 if generated:
                     logger.info("[OrchestratorAgent] ✅ Generated placeholder test file.")
+                    self._log("✅ Generated placeholder test file")
                     state.error_message = (
                         "No existing test files were found in the repository. "
                         "A placeholder test file was generated to allow the pipeline to proceed."
@@ -99,6 +110,7 @@ class OrchestratorAgent:
                     self._commit_generated_tests(state)
                 else:
                     logger.warning("[OrchestratorAgent] ❌ No test files found and could not generate stubs.")
+                    self._log("❌ No test files found and could not generate stubs", "error")
                     state.final_status = "FAILED"
                     state.error_message = (
                         f"No test files found in the repository. "
@@ -107,20 +119,26 @@ class OrchestratorAgent:
                         f"Please add test files to your repository before running the healing agent."
                     )
                     return self._build_result(state)
+            else:
+                self._log("✅ Test files found")
 
             # ── Step 4: Healing loop ───────────────────────────────────────
+            self._log(f"Starting healing loop (max {state.retry_limit} iterations)...")
             while state.current_iteration < state.retry_limit:
                 state.current_iteration += 1
+                self._log(f"━━━ Iteration {state.current_iteration}/{state.retry_limit} ━━━")
                 logger.info(f"\n{'='*60}")
                 logger.info(f"[OrchestratorAgent] >>> ITERATION {state.current_iteration}/{state.retry_limit}")
                 logger.info(f"{'='*60}")
 
                 # a) Run tests in Docker
+                self._log("Running tests in Docker container...")
                 state = self.runner.run(state)
 
                 # b) Short-circuit only if tests PASSED
                 if state.test_exit_code == 0:
                     state.final_status = "PASSED"
+                    self._log("✅ All tests passed!")
                     logger.info("[OrchestratorAgent] ✅ Tests passed!")
                     # Record final clean iteration
                     state.classified_failures = []
@@ -131,10 +149,17 @@ class OrchestratorAgent:
                     
                     # ─── Step 5: Post-Success Actions ──────────────────────────
                     # 1. Push to remote
+                    self._log("Pushing fixed code to remote repository...")
                     self._git_push(state)
+                    self._log(f"Git push: {getattr(state, 'git_push_status', 'unknown')}")
                     
                     # 2. Deploy
+                    self._log("Attempting deployment...")
                     self._deploy_container(state)
+                    if hasattr(state, 'deployment_url') and state.deployment_url and not state.deployment_url.startswith('Failed'):
+                        self._log(f"✅ Deployed at {state.deployment_url}")
+                    else:
+                        self._log("⚠ Deployment skipped or failed", "warn")
 
                     break
 
@@ -145,10 +170,16 @@ class OrchestratorAgent:
                 logger.info(f"[OrchestratorAgent] Test stderr (first 500):\n{stderr[:500]}")
 
                 # c) Classify failures — ALWAYS before any stop decision
+                self._log(f"Tests failed (exit code {state.test_exit_code}). Classifying failures...")
                 state = self.classifier.run(state)
+                num_failures = len(state.classified_failures)
+                self._log(f"Found {num_failures} failure(s): {', '.join(f.get('bug_type','?') for f in state.classified_failures[:5])}")
 
                 # d) Apply fixes
+                self._log("Generating and applying fixes...")
                 state = self.fixer.run(state)
+                num_fixes = len(state.fixes_applied)
+                self._log(f"Applied {num_fixes} fix(es) this iteration (cumulative: {state.cumulative_fixes})")
 
                 # e) Now let the monitor decide if we should continue
                 monitor_result = self.monitor.run(state)
@@ -157,6 +188,7 @@ class OrchestratorAgent:
                     f"[OrchestratorAgent] Monitor decision: {monitor_result['reason']} | "
                     f"Cumulative fixes: {state.cumulative_fixes}"
                 )
+                self._log(f"Monitor: {monitor_result['reason']}")
 
                 if monitor_result["should_stop"]:
                     reason = monitor_result["reason"]

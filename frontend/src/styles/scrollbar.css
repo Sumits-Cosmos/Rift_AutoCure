@@ -1,31 +1,31 @@
-/* Scrollbar Styles */
+/* Dark Theme Scrollbar Styles */
 
 /* Width */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 /* Track */
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(15, 23, 42, 0.5);
   border-radius: 10px;
 }
 
 /* Handle */
 ::-webkit-scrollbar-thumb {
-  background: #bbb;
+  background: rgba(99, 102, 241, 0.3);
   border-radius: 10px;
-  border: 2px solid #f1f1f1;
+  border: 1px solid rgba(15, 23, 42, 0.5);
 }
 
 /* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
-  background: #888;
+  background: rgba(99, 102, 241, 0.5);
 }
 
 /* Firefox Support */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #bbb #f1f1f1;
+  scrollbar-color: rgba(99, 102, 241, 0.3) rgba(15, 23, 42, 0.5);
 }

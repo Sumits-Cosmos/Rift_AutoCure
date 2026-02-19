@@ -36,6 +36,23 @@ export async function getAgentStatus(jobId) {
 }
 
 /**
+ * Fetch agent logs for a running job.
+ * Returns { job_id, logs: [{ ts, level, message }] }
+ * Use `since` to fetch only new entries after that timestamp.
+ */
+export async function getAgentLogs(jobId, since = 0) {
+    const url = since > 0
+        ? `${BASE_URL}/agent-logs/${jobId}?since=${since}`
+        : `${BASE_URL}/agent-logs/${jobId}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || 'Failed to fetch logs');
+    }
+    return res.json();
+}
+
+/**
  * List all jobs.
  */
 export async function listAgentJobs() {

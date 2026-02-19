@@ -1,41 +1,76 @@
-import { Activity } from 'lucide-react';
+import { Activity, Cpu, BookOpen, Sparkles } from 'lucide-react';
 
 /**
- * Navigation Bar Component
+ * Navigation Bar Component — Glassmorphic dark nav
  */
-const Navbar = ({ setPage }) => (
-  <nav className="flex items-center justify-between px-8 py-10 border-b border-gray-300 bg-blue-100 sticky top-0 z-50 h-16 shrink-0">
-    <div className="flex items-center cursor-pointer" onClick={() => setPage('home')}>
-      <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center border border-gray-300 mr-2">
-        <span className="text-xs font-bold text-gray-400 flex items-center">
-          <img src="/logo.png" alt="LOGO" />
-          <h2 className="text-black text-base">Cognitest</h2>
+const Navbar = ({ setPage, currentPage }) => {
+  const navLinks = [
+    { key: 'healing', label: 'Healing Agent', icon: Activity, primary: true },
+    { key: 'features', label: 'Features', icon: Sparkles },
+    { key: 'docs', label: 'Docs', icon: BookOpen },
+  ];
+
+  return (
+    <nav className="sticky top-0 z-50 flex items-center justify-between px-6 md:px-10 py-3 border-b border-white/[0.06] bg-[#0a0e1a]/80 backdrop-blur-xl">
+      {/* Logo */}
+      <div
+        className="flex items-center gap-2.5 cursor-pointer group"
+        onClick={() => setPage('home')}
+      >
+        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-all duration-300">
+          <Cpu size={18} className="text-white" />
+        </div>
+        <span className="text-lg font-bold tracking-tight text-white">
+          Cogni<span className="text-indigo-400">test</span>
         </span>
       </div>
-    </div>
-    <div className="flex gap-4">
-      <button
-        id="nav-healing-agent"
-        onClick={() => setPage('healing')}
-        className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-1.5"
-      >
-        <Activity size={14} /> Healing Agent
-      </button>
-      <button
-        onClick={() => setPage('features')}
-        className="px-6 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium"
-      >
-        Features
-      </button>
-      <button
-        onClick={() => setPage('docs')}
-        className="px-6 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium"
-      >
-        Docs
-      </button>
-    </div>
-  </nav>
-);
+
+      {/* Nav Links */}
+      <div className="flex items-center gap-2">
+        {navLinks.map((link) => {
+          const Icon = link.icon;
+          const isActive = currentPage === link.key;
+
+          if (link.primary) {
+            return (
+              <button
+                key={link.key}
+                id="nav-healing-agent"
+                onClick={() => setPage(link.key)}
+                className={`
+                  flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                  ${isActive
+                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25'
+                    : 'bg-gradient-to-r from-indigo-500/80 to-purple-600/80 text-white/90 hover:from-indigo-500 hover:to-purple-600 hover:shadow-lg hover:shadow-indigo-500/25'
+                  }
+                `}
+              >
+                <Icon size={15} />
+                {link.label}
+              </button>
+            );
+          }
+
+          return (
+            <button
+              key={link.key}
+              onClick={() => setPage(link.key)}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
+                ${isActive
+                  ? 'bg-white/10 text-white border border-white/10'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                }
+              `}
+            >
+              <Icon size={15} />
+              {link.label}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+};
 
 export default Navbar;
-

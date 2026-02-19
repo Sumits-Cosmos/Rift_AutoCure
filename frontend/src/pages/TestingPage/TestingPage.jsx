@@ -9,9 +9,7 @@ import { generateTestCases, generateTestCasesFromSpec, getCollection, updateTest
 const BATCH_SIZE = 10;
 
 /**
- * Testing Page - Main testing interface
- * Flow 1 (Generate): Swagger URL → FastAPI parses → FastAPI generates Postman collection → Node stores it
- * Flow 2 (Execute): Node loads collection → Newman runs batches → reports produced → FastAPI analyzes → Node stores summary
+ * Testing Page — Dark themed testing interface
  */
 const TestingPage = ({ onBack }) => {
   const [swaggerUrl, setSwaggerUrl] = useState('');
@@ -31,21 +29,16 @@ const TestingPage = ({ onBack }) => {
     if (file) {
       setUploadedFile(file);
       setError(null);
-      
-      // Read file content for JSON files
       if (file.name.endsWith('.json')) {
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
             const content = JSON.parse(event.target.result);
             setUploadedSpec(content);
-            
-            // Extract base URL if available
             let extractedBaseUrl = '';
             if (content.servers && content.servers[0]?.url) {
               extractedBaseUrl = content.servers[0].url;
             } else if (content.host) {
-              // Swagger 2.0 format
               const scheme = content.schemes?.[0] || 'https';
               extractedBaseUrl = `${scheme}://${content.host}${content.basePath || ''}`;
             }
@@ -61,35 +54,23 @@ const TestingPage = ({ onBack }) => {
   };
 
   const fetchTestCases = async () => {
-    // Check if we have a file uploaded or a URL
     if (!uploadedSpec && !swaggerUrl.trim()) {
       setError('Please upload a Swagger JSON file or enter a Swagger URL');
       return;
     }
-
     setIsLoading(true);
     setError(null);
     setResults(null);
     setTestCases([]);
-
     try {
-      // If using uploaded spec, inject the baseUrl
       let specToSend = uploadedSpec;
       if (uploadedSpec && baseUrl) {
-        specToSend = {
-          ...uploadedSpec,
-          servers: [{ url: baseUrl }]
-        };
+        specToSend = { ...uploadedSpec, servers: [{ url: baseUrl }] };
       }
-      
-      // Use file upload if we have a spec, otherwise use URL
-      const response = uploadedSpec 
+      const response = uploadedSpec
         ? await generateTestCasesFromSpec(specToSend)
         : await generateTestCases(swaggerUrl);
-      
       setRunId(response.runId);
-      
-      // Transform testcases to include id and selected fields for UI
       const transformedTestCases = response.testcases.map((tc, index) => ({
         id: index + 1,
         method: tc.method,
@@ -101,7 +82,6 @@ const TestingPage = ({ onBack }) => {
         payloadData: tc.payloadData || {},
         selected: true
       }));
-      
       setTestCases(transformedTestCases);
     } catch (err) {
       setError(err.message || 'Failed to generate test cases');
@@ -111,9 +91,7 @@ const TestingPage = ({ onBack }) => {
   };
 
   const toggleSelection = (id) => {
-    setTestCases(prev =>
-      prev.map(tc => (tc.id === id ? { ...tc, selected: !tc.selected } : tc))
-    );
+    setTestCases(prev => prev.map(tc => (tc.id === id ? { ...tc, selected: !tc.selected } : tc)));
   };
 
   const deleteTestCase = (id) => {
@@ -122,99 +100,35 @@ const TestingPage = ({ onBack }) => {
 
   const runTests = async () => {
     if (!runId || testCases.length === 0) return;
-    
     setIsRunning(true);
     setResults(null);
     setError(null);
     setBatchProgress(null);
-
-    // Aggregate results across all batches
-    let aggregatedResults = {
-      total: 0,
-      passed: 0,
-      failed: 0,
-      failedEndpoints: [],
-      successEndpoints: []
-    };
-
+    let aggregatedResults = { total: 0, passed: 0, failed: 0, failedEndpoints: [], successEndpoints: [] };
     try {
-      // Step 1: Get the current collection from the backend
       const { collection } = await getCollection(runId);
-
-      // Step 2: Map test case IDs (which are indices + 1) to collection indices
-      // testCases have id = index + 1 from the transformation, so we filter collection.item
-      // based on which indices correspond to non-deleted test cases
       const deletedIndices = new Set();
       const maxId = Math.max(...testCases.map(tc => tc.id), 0);
-      
-      // Find indices that were deleted (exist in range but not in current testCases)
       for (let i = 1; i <= maxId; i++) {
-        if (!testCases.find(tc => tc.id === i)) {
-          deletedIndices.add(i - 1); // Convert to 0-based index
-        }
+        if (!testCases.find(tc => tc.id === i)) deletedIndices.add(i - 1);
       }
-
-      // Filter the collection items to exclude deleted indices
-      const filteredItems = collection.item.filter((item, index) => {
-        return !deletedIndices.has(index);
-      });
-
-      // Create filtered collection with only non-deleted items
-      const filteredCollection = {
-        ...collection,
-        item: filteredItems
-      };
-
-      // Step 3: Update the collection on the backend with filtered items
+      const filteredItems = collection.item.filter((item, index) => !deletedIndices.has(index));
+      const filteredCollection = { ...collection, item: filteredItems };
       await updateTestCases(runId, filteredCollection);
-
-      // Step 4: Run tests against the updated collection
       const totalTests = testCases.length;
       const totalBatches = Math.ceil(totalTests / BATCH_SIZE);
-      
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        // Update progress
-        setBatchProgress({
-          currentBatch: batchIndex + 1,
-          totalBatches,
-          testedSoFar: batchIndex * BATCH_SIZE,
-          totalTests
-        });
-
-        // Execute this batch
+        setBatchProgress({ currentBatch: batchIndex + 1, totalBatches, testedSoFar: batchIndex * BATCH_SIZE, totalTests });
         const batchResult = await executeBatch(runId, batchIndex, BATCH_SIZE);
-        
-        // Aggregate the results
         aggregatedResults.total += batchResult.summary.total || 0;
         aggregatedResults.passed += batchResult.summary.passed || 0;
         aggregatedResults.failed += batchResult.summary.failed || 0;
-        aggregatedResults.failedEndpoints = [
-          ...aggregatedResults.failedEndpoints,
-          ...(batchResult.summary.failedEndpoints || [])
-        ];
-        aggregatedResults.successEndpoints = [
-          ...aggregatedResults.successEndpoints,
-          ...(batchResult.summary.successEndpoints || [])
-        ];
-
-        // Update results progressively so user can see partial results
+        aggregatedResults.failedEndpoints = [...aggregatedResults.failedEndpoints, ...(batchResult.summary.failedEndpoints || [])];
+        aggregatedResults.successEndpoints = [...aggregatedResults.successEndpoints, ...(batchResult.summary.successEndpoints || [])];
         setResults({ ...aggregatedResults });
-
-        // Update progress with completed batch
-        setBatchProgress({
-          currentBatch: batchIndex + 1,
-          totalBatches,
-          testedSoFar: Math.min((batchIndex + 1) * BATCH_SIZE, totalTests),
-          totalTests
-        });
-
-        // If batch indicates completion, break
-        if (batchResult.isComplete) {
-          break;
-        }
+        setBatchProgress({ currentBatch: batchIndex + 1, totalBatches, testedSoFar: Math.min((batchIndex + 1) * BATCH_SIZE, totalTests), totalTests });
+        if (batchResult.isComplete) break;
       }
-
-      // Final update
       setResults(aggregatedResults);
       setBatchProgress(null);
     } catch (err) {
@@ -225,11 +139,11 @@ const TestingPage = ({ onBack }) => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-10 px-6 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
-      {/* Error Message */}
+    <div className="max-w-5xl mx-auto py-8 px-6 space-y-6 w-full animate-fadeInUp">
+      {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          {error}
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-300 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+          <span className="text-rose-400">⚠</span> {error}
         </div>
       )}
 
@@ -238,17 +152,17 @@ const TestingPage = ({ onBack }) => {
 
       {/* Divider */}
       <div className="flex items-center gap-4">
-        <div className="flex-1 border-t border-gray-300"></div>
-        <span className="text-gray-500 font-medium">OR</span>
-        <div className="flex-1 border-t border-gray-300"></div>
+        <div className="flex-1 border-t border-white/[0.06]"></div>
+        <span className="text-slate-600 font-semibold text-sm">OR</span>
+        <div className="flex-1 border-t border-white/[0.06]"></div>
       </div>
 
       {/* Input / Fetch Row */}
-      <div className="flex gap-4">
+      <div className="flex gap-3">
         <input
           type="text"
-          placeholder="Enter URL"
-          className={`flex-1 px-4 py-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 transition-all shadow-sm ${uploadedSpec ? 'bg-gray-100' : ''}`}
+          placeholder="Enter Swagger URL"
+          className={`input-dark flex-1 px-4 py-3 ${uploadedSpec ? 'opacity-50' : ''}`}
           value={swaggerUrl}
           onChange={(e) => setSwaggerUrl(e.target.value)}
           disabled={!!uploadedSpec}
@@ -256,70 +170,60 @@ const TestingPage = ({ onBack }) => {
         <button
           onClick={fetchTestCases}
           disabled={isLoading || (!uploadedSpec && !swaggerUrl.trim())}
-          className={`px-8 py-3 bg-[#32a832] text-white font-semibold rounded-full hover:bg-green-700 transition-colors shadow-sm whitespace-nowrap ${
-            isLoading || (!uploadedSpec && !swaggerUrl.trim()) ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className="btn-primary px-6 py-3 whitespace-nowrap text-sm"
         >
           {isLoading ? 'Generating...' : 'Generate Test Cases'}
         </button>
       </div>
 
-      {/* Show which source will be used */}
+      {/* Uploaded file info */}
       {uploadedSpec && (
-        <div className="bg-green-50 border border-green-200 p-4 rounded-lg space-y-3">
-          <p className="text-sm text-green-700">
-            ✓ Using uploaded file: <strong>{uploadedFile?.name}</strong>
-            <button 
+        <div className="glass-card p-4 space-y-3">
+          <p className="text-sm text-emerald-300 flex items-center gap-2">
+            ✓ Using uploaded file: <strong className="text-white">{uploadedFile?.name}</strong>
+            <button
               onClick={() => { setUploadedFile(null); setUploadedSpec(null); setSwaggerUrl(''); setBaseUrl(''); }}
-              className="ml-2 text-red-500 hover:underline"
+              className="ml-2 text-rose-400 hover:text-rose-300 text-xs underline"
             >
-              (Clear)
+              Clear
             </button>
           </p>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              API Base URL (for running tests):
-            </label>
+            <label className="block text-sm font-medium text-slate-400 mb-1.5">API Base URL (for running tests):</label>
             <input
               type="text"
               placeholder="e.g., https://petstore.swagger.io/v2"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500"
+              className="input-dark w-full px-4 py-2.5"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
             />
-            {baseUrl && <p className="text-xs text-gray-500 mt-1">Tests will run against: {baseUrl}</p>}
+            {baseUrl && <p className="text-xs text-slate-500 mt-1">Tests will run against: {baseUrl}</p>}
           </div>
         </div>
       )}
 
-      {/* Loading Spinner for Generation */}
+      {/* Loading */}
       {isLoading && <LoadingSpinner />}
 
-      {/* Table Section */}
-      <TestTable
-        testCases={testCases}
-        onToggleSelection={toggleSelection}
-        onDeleteTestCase={deleteTestCase}
-      />
+      {/* Table */}
+      <TestTable testCases={testCases} onToggleSelection={toggleSelection} onDeleteTestCase={deleteTestCase} />
 
-      {/* Execution Results */}
+      {/* Execution Progress */}
       {isRunning && (
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+        <div className="glass-card p-6">
           <LoadingSpinner />
           {batchProgress && (
             <div className="mt-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <span className="text-lg font-semibold text-gray-700">
-                  Running Batch {batchProgress.currentBatch} of {batchProgress.totalBatches}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
-                <div 
-                  className="bg-green-500 h-3 rounded-full transition-all duration-300"
+              <p className="text-lg font-bold text-white mb-2">
+                Running Batch {batchProgress.currentBatch} of {batchProgress.totalBatches}
+              </p>
+              <div className="w-full bg-white/[0.05] rounded-full h-2.5 mb-2 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2.5 rounded-full transition-all duration-300"
                   style={{ width: `${(batchProgress.testedSoFar / batchProgress.totalTests) * 100}%` }}
                 ></div>
               </div>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-slate-400">
                 {batchProgress.testedSoFar} of {batchProgress.totalTests} tests completed
               </p>
             </div>
@@ -329,22 +233,19 @@ const TestingPage = ({ onBack }) => {
 
       {results && <TestResults results={results} isPartial={isRunning} />}
 
-      {/* Action Buttons Footer */}
-      <div className="flex items-center justify-between pt-10 pb-10">
+      {/* Footer Buttons */}
+      <div className="flex items-center justify-between pt-6 pb-8">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-8 py-3 bg-[#c22d2d] text-white font-bold rounded-2xl hover:bg-red-800 transition-colors shadow-md"
+          className="flex items-center gap-2 px-6 py-3 bg-white/[0.05] border border-white/10 text-slate-300 rounded-xl hover:bg-white/10 transition-all text-sm font-medium"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
-
         {testCases.length > 0 && (
           <button
             onClick={runTests}
             disabled={isRunning}
-            className={`px-12 py-3 bg-[#32a832] text-white font-bold rounded-full transition-all shadow-md transform hover:scale-105 active:scale-95 ${
-              isRunning ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+            className="btn-primary px-10 py-3 text-sm"
           >
             Run Tests
           </button>
