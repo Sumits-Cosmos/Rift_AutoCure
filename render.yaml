@@ -1,0 +1,75 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy all 3 Cognitest services with: "New" → "Blueprint" → paste repo URL
+
+services:
+  # ─── Python FastAPI Service ──────────────────────────────────────────────────
+  - type: web
+    name: cognitest-python-service
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: python-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: XAI_API_KEY
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: USE_DOCKER
+        value: "false"
+      - key: LLM_MIN_SLEEP
+        value: "3"
+
+  # ─── Node.js Express Backend ─────────────────────────────────────────────────
+  - type: web
+    name: cognitest-backend
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20.11.0"
+      - key: FASTAPI_URL
+        fromService:
+          name: cognitest-python-service
+          type: web
+          property: url
+      - key: STORAGE_DIR
+        value: ./storage
+
+  # ─── React/Vite Frontend (Static Site) ──────────────────────────────────────
+  - type: web
+    name: cognitest-frontend
+    runtime: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: cognitest-backend
+          type: web
+          property: url
+      - key: VITE_PYTHON_API_URL
+        fromService:
+          name: cognitest-python-service
+          type: web
+          property: url

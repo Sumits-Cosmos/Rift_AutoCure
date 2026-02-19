@@ -1,7 +1,11 @@
 {
   "name": "api-testing-backend",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "start": "node server.js",
     "dev": "node server.js"
   },
   "dependencies": {
