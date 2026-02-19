@@ -56,17 +56,22 @@ class CIMonitorAgent:
             logger.info("[CIMonitorAgent] ✅ Tests passed — stopping loop.")
             return {"should_stop": True, "reason": "TESTS_PASSED", "metadata": meta}
 
-        # Stop condition 2: Oscillation detected (same failure 3+ times)
-        if state.is_oscillating():
+        # Stop condition 2: Oscillation detected (same failure 3+ iterations)
+        # GUARD: Only check after at least 3 iterations — you need:
+        #   iter1 → see failure, apply fix
+        #   iter2 → same failure back? apply different fix
+        #   iter3 → STILL same failure? → oscillating
+        if iteration >= 3 and state.is_oscillating():
             repeated = state.get_repeated_failures()
             logger.warning(
-                f"[CIMonitorAgent] 🔄 Oscillation detected — same failures recurring: {repeated}. "
-                f"Stopping to prevent infinite loop."
+                f"[CIMonitorAgent] 🔄 Oscillation detected — same failures recurring "
+                f"across {iteration} iterations: {repeated}. Stopping to prevent infinite loop."
             )
             return {"should_stop": True, "reason": "OSCILLATING", "metadata": meta}
 
         # Stop condition 3: No progress (2 consecutive iterations with 0 fixes)
-        if state.last_n_had_no_progress(2) and iteration >= 2:
+        # Only meaningful after at least 3 iterations (give the system a fair chance)
+        if state.last_n_had_no_progress(2) and iteration >= 3:
             logger.warning(
                 f"[CIMonitorAgent] 📉 No progress for 2 consecutive iterations — stopping."
             )

@@ -107,8 +107,13 @@ class SharedState:
         )
         self.iteration_history.append(snapshot)
 
-        # Track failure fingerprints for oscillation detection
-        for sig in sigs:
+        # Track failure fingerprints for oscillation detection.
+        # IMPORTANT: Deduplicate — count each unique signature ONCE per
+        # iteration, not once per failure item. Otherwise 3 LOGIC failures
+        # for the same file in 1 iteration would immediately trigger
+        # oscillation (count=3) which is a false positive.
+        unique_sigs = set(sigs)
+        for sig in unique_sigs:
             self.failure_fingerprints[sig] = self.failure_fingerprints.get(sig, 0) + 1
 
         # Track modified files

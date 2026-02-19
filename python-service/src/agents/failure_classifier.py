@@ -128,7 +128,24 @@ class FailureClassifierAgent:
                 return parsed
             logger.warning("[FailureClassifierAgent] LLM returned empty list, using regex fallback.")
         except Exception as e:
-            logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
+            error_str = str(e).lower()
+            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
+                logger.error(
+                    "\n" + "=" * 60 +
+                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
+                    "\n   The API key has hit its request quota."
+                    "\n   Classification will use regex fallback for this iteration."
+                    "\n   Consider waiting or upgrading your API plan."
+                    "\n" + "=" * 60
+                )
+                print(
+                    "\n\033[93m" + "=" * 60 +
+                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
+                    "\n   Classification falling back to regex."
+                    "\n" + "=" * 60 + "\033[0m"
+                )
+            else:
+                logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
         return []
 
     def _classify_with_regex(self, state: SharedState):

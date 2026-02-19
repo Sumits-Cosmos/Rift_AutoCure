@@ -337,7 +337,23 @@ class FixGeneratorAgent:
             text = re.sub(r"\n?```$", "", text)
             fix_data = json.loads(text)
         except Exception as e:
-            logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
+            error_str = str(e).lower()
+            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
+                logger.error(
+                    "\n" + "=" * 60 +
+                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
+                    "\n   Fix generation skipped for: " + file_rel +
+                    "\n   Consider waiting or upgrading your API plan."
+                    "\n" + "=" * 60
+                )
+                print(
+                    "\n\033[93m" + "=" * 60 +
+                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
+                    "\n   Fix generation skipped for: " + file_rel +
+                    "\n" + "=" * 60 + "\033[0m"
+                )
+            else:
+                logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
             return None
 
         fixed_content = fix_data.get("fixed_content", "")
