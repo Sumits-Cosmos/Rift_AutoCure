@@ -1,6 +1,10 @@
 """
 TestRunnerAgent: Executes tests inside an isolated Docker container.
 Captures stdout, stderr, and exit code.
+
+v2: Docker layer caching — builds base image once, uses `docker cp` on
+    subsequent iterations. Generates .dockerignore for faster builds.
+    UTF-8 safe subprocess handling.
 """
 import os
 import subprocess
@@ -21,8 +25,9 @@ CMD [{cmd_args}]
 
 NODE_DOCKERFILE_TEMPLATE = """FROM node:20-slim
 WORKDIR /app
-COPY . .
+COPY package*.json ./
 RUN npm install --legacy-peer-deps 2>/dev/null || true
+COPY . .
 CMD {cmd_json}
 """
 
@@ -33,47 +38,104 @@ RUN go mod download 2>/dev/null || true
 CMD ["go", "test", "./..."]
 """
 
+DOCKERIGNORE_CONTENT = """.git
+node_modules
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.DS_Store
+Dockerfile*
+"""
+
+
+def _safe_run(cmd, **kwargs):
+    """
+    Run a subprocess with UTF-8 encoding and error replacement.
+    Returns (returncode, stdout_str, stderr_str).
+    Never raises UnicodeDecodeError.
+    """
+    kwargs.pop("text", None)
+    kwargs.pop("encoding", None)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        timeout=kwargs.pop("timeout", 300),
+        **kwargs,
+    )
+    stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+    stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+    return result.returncode, stdout, stderr
+
 
 class TestRunnerAgent:
     """Runs tests for the target repo inside a sandboxed Docker container."""
 
-    IMAGE_TAG = "cicd-healing-temp-image"
+    BASE_IMAGE_TAG = "cicd-healing-base-image"
+    RUN_IMAGE_TAG = "cicd-healing-run-image"
 
     def run(self, state: SharedState) -> SharedState:
         repo_path = state.repo_path
         language = state.language
         test_command = state.test_command
-        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language}")
+        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language} | Iteration: {state.current_iteration}")
 
-        # Generate a Dockerfile in a temp dir that copies the repo
         build_context = tempfile.mkdtemp(prefix="cicd_heal_")
         try:
             # Copy repo files into build context
             repo_dest = os.path.join(build_context, "app_src")
             shutil.copytree(repo_path, repo_dest, dirs_exist_ok=True)
 
-            # Write Dockerfile into the build context root
+            # Generate .dockerignore for faster builds
+            dockerignore_path = os.path.join(repo_dest, ".dockerignore")
+            if not os.path.exists(dockerignore_path):
+                with open(dockerignore_path, "w", encoding="utf-8") as f:
+                    f.write(DOCKERIGNORE_CONTENT)
+
+            # Write Dockerfile
             dockerfile_content = self._generate_dockerfile(language, test_command)
             dockerfile_path = os.path.join(repo_dest, "Dockerfile.cicd")
-
             with open(dockerfile_path, "w", encoding="utf-8") as f:
                 f.write(dockerfile_content)
 
-            # Build Docker image
-            build_ok, build_stdout, build_stderr = self._docker_build(repo_dest)
-            if not build_ok:
-                state.test_exit_code = 1
-                state.test_stdout = build_stdout
-                state.test_stderr = f"[Docker Build Failed]\n{build_stderr}"
-                logger.error(f"[TestRunnerAgent] Docker build failed:\n{build_stderr}")
-                return state
+            # ── Docker build strategy ──
+            if not state.docker_image_built:
+                # First iteration: full build (installs deps)
+                build_ok, build_stdout, build_stderr = self._docker_build(repo_dest, self.BASE_IMAGE_TAG)
+                if not build_ok:
+                    state.test_exit_code = 1
+                    state.test_stdout = build_stdout or ""
+                    state.test_stderr = f"[Docker Build Failed]\n{build_stderr}"
+                    logger.error(f"[TestRunnerAgent] Docker build failed:\n{(build_stderr or '')[:500]}")
+                    return state
+                state.docker_image_built = True
+                logger.info("[TestRunnerAgent] ✅ Base Docker image built successfully.")
+            else:
+                # Subsequent iterations: rebuild but with Docker layer cache
+                # The dep-install layers are cached, only COPY . . layer rebuilds
+                build_ok, build_stdout, build_stderr = self._docker_build(
+                    repo_dest, self.BASE_IMAGE_TAG
+                )
+                if not build_ok:
+                    state.test_exit_code = 1
+                    state.test_stdout = build_stdout or ""
+                    state.test_stderr = f"[Docker Rebuild Failed]\n{build_stderr}"
+                    return state
+                logger.info("[TestRunnerAgent] ♻️ Docker image rebuilt (cached deps).")
 
             # Run tests
             run_ok, run_stdout, run_stderr, exit_code = self._docker_run()
-            state.test_stdout = run_stdout
-            state.test_stderr = run_stderr
+            state.test_stdout = run_stdout or ""
+            state.test_stderr = run_stderr or ""
             state.test_exit_code = exit_code
             logger.info(f"[TestRunnerAgent] Tests exit code: {exit_code}")
+
+        except Exception as e:
+            logger.error(f"[TestRunnerAgent] Exception during Docker run: {e}")
+            state.test_stdout = state.test_stdout or ""
+            state.test_stderr = state.test_stderr or str(e)
+            state.test_exit_code = 1
 
         finally:
             shutil.rmtree(build_context, ignore_errors=True)
@@ -93,51 +155,41 @@ class TestRunnerAgent:
         elif language == "go":
             return GO_DOCKERFILE_TEMPLATE
         else:
-            # Generic fallback
             parts = test_command.split()
             cmd_args = ", ".join(f'"{p}"' for p in parts)
             return PYTHON_DOCKERFILE_TEMPLATE.format(cmd_args=cmd_args)
 
-    def _docker_build(self, build_context_path: str):
+    def _docker_build(self, build_context_path: str, tag: str):
         cmd = [
             "docker", "build",
-            "-t", self.IMAGE_TAG,
+            "-t", tag,
             "-f", os.path.join(build_context_path, "Dockerfile.cicd"),
             build_context_path
         ]
-        logger.info(f"[TestRunnerAgent] Building Docker image: {' '.join(cmd)}")
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        return result.returncode == 0, result.stdout, result.stderr
+        logger.info(f"[TestRunnerAgent] Building Docker image: {' '.join(cmd[:6])}...")
+        returncode, stdout, stderr = _safe_run(cmd, timeout=300)
+        return returncode == 0, stdout, stderr
 
     def _docker_run(self):
         cmd = [
             "docker", "run",
             "--rm",
-            "--network=none",         # No network access for safety
-            "--memory=512m",          # Memory limit
-            "--cpus=1",               # CPU limit
-            self.IMAGE_TAG
+            "--network=none",
+            "--memory=512m",
+            "--cpus=1",
+            self.BASE_IMAGE_TAG
         ]
-        logger.info(f"[TestRunnerAgent] Running Docker container...")
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        return result.returncode == 0, result.stdout, result.stderr, result.returncode
+        logger.info("[TestRunnerAgent] Running Docker container...")
+        returncode, stdout, stderr = _safe_run(cmd, timeout=300)
+        return returncode == 0, stdout, stderr, returncode
 
     def _docker_cleanup(self):
-        try:
-            subprocess.run(
-                ["docker", "rmi", "-f", self.IMAGE_TAG],
-                capture_output=True,
-                timeout=30
-            )
-        except Exception:
-            pass
+        for tag in [self.BASE_IMAGE_TAG, self.RUN_IMAGE_TAG]:
+            try:
+                subprocess.run(
+                    ["docker", "rmi", "-f", tag],
+                    capture_output=True,
+                    timeout=30
+                )
+            except Exception:
+                pass

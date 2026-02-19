@@ -1,17 +1,19 @@
 """
 OrchestratorAgent: The top-level controller that coordinates all sub-agents.
-Manages the retry loop (max 5 iterations), maintains shared state,
-and produces the final results.json.
+Manages the retry loop, maintains shared state, and produces the final results.
 
-FIXED LOOP ORDER:
+v2: Cumulative fix tracking, iteration snapshots, oscillation/no-progress
+    early termination, improved result reporting with all_fixes.
+
+LOOP ORDER:
   1. Clone repo & create branch
-  2. RepoAnalyzerAgent → detect lang/framework + test files
-  3. If no test files → LLM generates basic test stubs  
+  2. RepoAnalyzerAgent → detect lang/framework + test files + module system
+  3. If no test files → LLM generates basic test stubs
   4. (Loop up to retry_limit):
-     a. TestRunnerAgent   → run tests in Docker
-     b. FailureClassifierAgent → classify errors    ← ALWAYS before monitor stop check
-     c. FixGeneratorAgent → apply patches
-     d. CIMonitorAgent    → decide continue/stop
+     a. TestRunnerAgent        → run tests in Docker
+     b. FailureClassifierAgent → classify errors (STRUCTURAL first)
+     c. FixGeneratorAgent      → apply patches (structural → LLM)
+     d. CIMonitorAgent         → decide continue/stop (oscillation/progress-aware)
 """
 import os
 import re
@@ -21,7 +23,6 @@ import shutil
 import logging
 import subprocess
 import tempfile
-from dataclasses import asdict
 
 from .shared_state import SharedState, FixRecord
 from .repo_analyzer import RepoAnalyzerAgent
@@ -121,11 +122,19 @@ class OrchestratorAgent:
                 if state.test_exit_code == 0:
                     state.final_status = "PASSED"
                     logger.info("[OrchestratorAgent] ✅ Tests passed!")
+                    # Record final clean iteration
+                    state.classified_failures = []
+                    state.fixes_applied = []
+                    state.total_failures = 0
+                    state.total_fixes = 0
+                    state.record_iteration()
                     break
 
-                # Log raw output to help debugging
-                logger.info(f"[OrchestratorAgent] Test stdout (first 500):\n{state.test_stdout[:500]}")
-                logger.info(f"[OrchestratorAgent] Test stderr (first 500):\n{state.test_stderr[:500]}")
+                # Log raw output to help debugging (guard against None)
+                stdout = state.test_stdout or ""
+                stderr = state.test_stderr or ""
+                logger.info(f"[OrchestratorAgent] Test stdout (first 500):\n{stdout[:500]}")
+                logger.info(f"[OrchestratorAgent] Test stderr (first 500):\n{stderr[:500]}")
 
                 # c) Classify failures — ALWAYS before any stop decision
                 state = self.classifier.run(state)
@@ -135,23 +144,44 @@ class OrchestratorAgent:
 
                 # e) Now let the monitor decide if we should continue
                 monitor_result = self.monitor.run(state)
+
+                logger.info(
+                    f"[OrchestratorAgent] Monitor decision: {monitor_result['reason']} | "
+                    f"Cumulative fixes: {state.cumulative_fixes}"
+                )
+
                 if monitor_result["should_stop"]:
                     reason = monitor_result["reason"]
-                    if reason == "RETRY_LIMIT_REACHED":
-                        state.final_status = "PARTIAL" if state.total_fixes > 0 else "FAILED"
-                    elif reason == "UNCLASSIFIABLE_FAILURE":
-                        state.final_status = "FAILED"
-                        if not state.error_message:
-                            state.error_message = (
-                                "Tests failed but no specific errors could be classified. "
-                                f"Stdout: {state.test_stdout[:300]} | "
-                                f"Stderr: {state.test_stderr[:300]}"
-                            )
+                    if reason == "TESTS_PASSED":
+                        state.final_status = "PASSED"
+                    elif reason == "OSCILLATING":
+                        state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
+                        repeated = state.get_repeated_failures()
+                        state.error_message = (
+                            f"Healing loop detected oscillation — same failures recurring: "
+                            f"{', '.join(repeated[:5])}. "
+                            f"Applied {state.cumulative_fixes} fix(es) before stopping."
+                        )
+                    elif reason == "NO_PROGRESS":
+                        state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
+                        state.error_message = (
+                            f"No progress for 2 consecutive iterations. "
+                            f"Applied {state.cumulative_fixes} fix(es) total but "
+                            f"{state.total_failures} failure(s) remain."
+                        )
+                    elif reason == "RETRY_LIMIT_REACHED":
+                        state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
+                        state.error_message = (
+                            f"Retry limit ({state.retry_limit}) reached. "
+                            f"Applied {state.cumulative_fixes} fix(es) but "
+                            f"{state.total_failures} failure(s) remain."
+                        )
                     else:
-                        state.final_status = "PARTIAL" if state.total_fixes > 0 else "FAILED"
+                        state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
                     break
             else:
-                state.final_status = "FAILED"
+                # while-else: loop exhausted without break
+                state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
 
         except Exception as e:
             logger.exception(f"[OrchestratorAgent] Unhandled error: {e}")
@@ -181,10 +211,9 @@ class OrchestratorAgent:
     def _has_test_files(self, state: SharedState) -> bool:
         patterns = self.TEST_FILE_PATTERNS.get(state.language, [])
         if not patterns:
-            return True  # can't check — assume present
+            return True
 
         for root, _, files in os.walk(state.repo_path):
-            # Skip hidden dirs like .git, node_modules, venv
             parts = root.replace("\\", "/").split("/")
             if any(p.startswith(".") or p in ("node_modules", ".venv", "venv", "__pycache__") for p in parts):
                 continue
@@ -199,10 +228,6 @@ class OrchestratorAgent:
         return False
 
     def _generate_placeholder_tests(self, state: SharedState) -> bool:
-        """
-        Generate minimal placeholder test files so the pipeline can proceed.
-        Returns True if a file was written.
-        """
         lang = state.language
         repo = state.repo_path
 
@@ -215,12 +240,10 @@ class OrchestratorAgent:
             )
             path = os.path.join(repo, "tests", "test_placeholder.py")
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            # Also create __init__.py
             with open(os.path.join(repo, "tests", "__init__.py"), "w") as f:
                 f.write("")
 
         elif lang == "node":
-            # Detect if jest is in package.json
             content = (
                 "// Auto-generated placeholder test by CI Healing Agent\n"
                 "describe('Placeholder', () => {\n"
@@ -284,7 +307,6 @@ class OrchestratorAgent:
             if result.returncode != 0:
                 logger.error(f"[OrchestratorAgent] Clone failed:\n{result.stderr}")
                 return False
-            # git clone into existing dir — move contents up if in sub-folder
             items = [i for i in os.listdir(dest) if i != ".git"]
             if len(items) == 1 and os.path.isdir(os.path.join(dest, items[0])):
                 inner = os.path.join(dest, items[0])
@@ -313,31 +335,49 @@ class OrchestratorAgent:
         if state.start_time and state.end_time:
             elapsed = state.end_time - state.start_time
 
-        fixes_list = []
-        for fix in state.fixes_applied:
+        # Build cumulative fixes list (all iterations)
+        all_fixes_list = []
+        for fix in state.all_fixes_applied:
             if isinstance(fix, FixRecord):
-                fixes_list.append({
+                all_fixes_list.append({
                     "file": fix.file,
                     "bug_type": fix.bug_type,
                     "line": fix.line,
                     "commit_message": fix.commit_message,
-                    "status": fix.status
+                    "explanation": fix.explanation,
+                    "status": fix.status,
+                    "iteration": fix.iteration,
                 })
             elif isinstance(fix, dict):
-                fixes_list.append(fix)
+                all_fixes_list.append(fix)
+
+        # Build iteration history
+        iter_history = []
+        for snap in state.iteration_history:
+            iter_history.append({
+                "iteration": snap.iteration,
+                "exit_code": snap.exit_code,
+                "failure_count": snap.failure_count,
+                "fix_count": snap.fix_count,
+                "failure_signatures": snap.failure_signatures,
+            })
 
         result = {
             "repository": state.repo_url,
             "branch": state.branch_name,
             "total_failures": state.total_failures,
-            "total_fixes": state.total_fixes,
+            "total_fixes": state.cumulative_fixes,
             "iterations_used": state.current_iteration,
             "status": state.final_status,
             "time_taken_seconds": round(elapsed, 2),
             "language": state.language,
             "test_framework": state.test_framework,
-            "fixes": fixes_list,
-            "error": state.error_message
+            "module_system": state.module_system,
+            "fixes": all_fixes_list,                   # cumulative fixes for frontend
+            "all_fixes": all_fixes_list,               # alias for clarity
+            "iteration_history": iter_history,         # per-iteration breakdown
+            "repeated_failures": state.get_repeated_failures(),
+            "error": state.error_message,
         }
 
         logger.info(f"[OrchestratorAgent] Final result: {json.dumps(result, indent=2)}")

@@ -2,9 +2,9 @@
 CIMonitorAgent: Tracks iteration count, checks stopping conditions,
 and provides status for the orchestrator loop.
 
-NOTE: This agent is called AFTER FailureClassificationAgent has run.
-The 'UNCLASSIFIABLE_FAILURE' stop is only fired when failures > 0 but
-we still can't make progress (no fixes generated after multiple attempts).
+v2: Progress-aware stop logic with oscillation detection,
+    no-progress detection (consecutive 0-fix iterations),
+    and richer return metadata.
 """
 import logging
 from .shared_state import SharedState
@@ -19,35 +19,67 @@ class CIMonitorAgent:
         """
         Evaluate stopping conditions AFTER classification and fix attempts.
 
-        Returns:
-          - should_stop (bool): whether the loop should terminate
-          - reason (str): TESTS_PASSED | RETRY_LIMIT_REACHED | NO_PROGRESS | CONTINUE
+        Returns dict with:
+          - should_stop (bool)
+          - reason (str): TESTS_PASSED | RETRY_LIMIT_REACHED | NO_PROGRESS | OSCILLATING | CONTINUE
+          - metadata (dict): additional context
         """
         iteration = state.current_iteration
         limit = state.retry_limit
         exit_code = state.test_exit_code
         fixes_this_round = state.total_fixes
+        failures_this_round = state.total_failures
+
+        # Record iteration snapshot for history tracking
+        state.record_iteration()
+
+        meta = {
+            "iteration": iteration,
+            "fixes_this_round": fixes_this_round,
+            "failures_remaining": failures_this_round,
+            "cumulative_fixes": state.cumulative_fixes,
+            "is_oscillating": state.is_oscillating(),
+            "repeated_failures": state.get_repeated_failures(),
+        }
 
         logger.info(
             f"[CIMonitorAgent] Iteration {iteration}/{limit} | "
             f"Exit code: {exit_code} | "
-            f"Fixes applied: {fixes_this_round} | "
-            f"Total failures: {state.total_failures}"
+            f"Fixes this round: {fixes_this_round} | "
+            f"Cumulative fixes: {state.cumulative_fixes} | "
+            f"Failures: {failures_this_round} | "
+            f"Oscillating: {meta['is_oscillating']}"
         )
 
         # Stop condition 1: Tests passed
         if exit_code == 0:
             logger.info("[CIMonitorAgent] ✅ Tests passed — stopping loop.")
-            return {"should_stop": True, "reason": "TESTS_PASSED"}
+            return {"should_stop": True, "reason": "TESTS_PASSED", "metadata": meta}
 
-        # Stop condition 2: Retry limit reached
+        # Stop condition 2: Oscillation detected (same failure 3+ times)
+        if state.is_oscillating():
+            repeated = state.get_repeated_failures()
+            logger.warning(
+                f"[CIMonitorAgent] 🔄 Oscillation detected — same failures recurring: {repeated}. "
+                f"Stopping to prevent infinite loop."
+            )
+            return {"should_stop": True, "reason": "OSCILLATING", "metadata": meta}
+
+        # Stop condition 3: No progress (2 consecutive iterations with 0 fixes)
+        if state.last_n_had_no_progress(2) and iteration >= 2:
+            logger.warning(
+                f"[CIMonitorAgent] 📉 No progress for 2 consecutive iterations — stopping."
+            )
+            return {"should_stop": True, "reason": "NO_PROGRESS", "metadata": meta}
+
+        # Stop condition 4: Retry limit reached
         if iteration >= limit:
             logger.warning(f"[CIMonitorAgent] ⚠️ Retry limit ({limit}) reached — stopping loop.")
-            return {"should_stop": True, "reason": "RETRY_LIMIT_REACHED"}
+            return {"should_stop": True, "reason": "RETRY_LIMIT_REACHED", "metadata": meta}
 
         # Continue — more iterations available
         logger.info(f"[CIMonitorAgent] 🔄 Continuing to iteration {iteration + 1}...")
-        return {"should_stop": False, "reason": "CONTINUE"}
+        return {"should_stop": False, "reason": "CONTINUE", "metadata": meta}
 
     def status_badge(self, state: SharedState) -> str:
         """Returns a concise status badge string like '2/5'."""

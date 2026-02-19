@@ -17,6 +17,7 @@ const STATUS_CONFIG = {
 };
 
 const BUG_TYPE_COLORS = {
+    STRUCTURAL: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
     SYNTAX: 'bg-red-500/20 text-red-300 border-red-500/30',
     LOGIC: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
     TYPE_ERROR: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
@@ -106,6 +107,7 @@ function FixesTable({ fixes }) {
                 <table className="w-full text-sm">
                     <thead>
                         <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-wider">
+                            <th className="px-4 py-3 text-left">Iter</th>
                             <th className="px-4 py-3 text-left">File</th>
                             <th className="px-4 py-3 text-left">Bug Type</th>
                             <th className="px-4 py-3 text-left">Line</th>
@@ -116,6 +118,11 @@ function FixesTable({ fixes }) {
                     <tbody>
                         {fixes.map((fix, i) => (
                             <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                <td className="px-4 py-3">
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono font-semibold">
+                                        #{fix.iteration || '?'}
+                                    </span>
+                                </td>
                                 <td className="px-4 py-3 font-mono text-slate-200 text-xs">{fix.file}</td>
                                 <td className="px-4 py-3">
                                     <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
