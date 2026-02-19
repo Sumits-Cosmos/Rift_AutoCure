@@ -19,7 +19,11 @@ PYTHON_DOCKERFILE_TEMPLATE = """FROM python:3.11-slim
 WORKDIR /app
 COPY . .
 RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
-RUN pip install --no-cache-dir pytest pytest-cov 2>/dev/null || true
+RUN pip install --no-cache-dir -r requirements-dev.txt 2>/dev/null || true
+RUN pip install --no-cache-dir -r test-requirements.txt 2>/dev/null || true
+RUN pip install --no-cache-dir -r dev-requirements.txt 2>/dev/null || true
+RUN if [ -f setup.py ] || [ -f pyproject.toml ]; then pip install --no-cache-dir -e . 2>/dev/null || true; fi
+RUN pip install --no-cache-dir pytest pytest-cov httpx 2>/dev/null || true
 CMD [{cmd_args}]
 """
 
