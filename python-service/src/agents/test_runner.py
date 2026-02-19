@@ -79,29 +79,85 @@ class TestRunnerAgent:
         repo_path = state.repo_path
         language = state.language
         test_command = state.test_command
-        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language} | Iteration: {state.current_iteration}")
 
+        # Auto-detect: use Docker if available, else subprocess
+        use_docker = self._docker_available()
+        mode = "Docker" if use_docker else "Subprocess"
+        logger.info(f"[TestRunnerAgent] Running tests via {mode} | Language: {language} | Iteration: {state.current_iteration}")
+
+        if use_docker:
+            return self._run_with_docker(state, repo_path, language, test_command)
+        else:
+            return self._run_with_subprocess(state, repo_path, language, test_command)
+
+    def _docker_available(self) -> bool:
+        """Check if Docker daemon is reachable."""
+        if os.getenv("USE_DOCKER", "auto").lower() == "false":
+            return False
+        try:
+            result = subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=5
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    def _run_with_subprocess(self, state: SharedState, repo_path: str, language: str, test_command: str) -> SharedState:
+        """Run tests directly via subprocess (no Docker). For cloud deployment."""
+        try:
+            # Install dependencies first
+            if language == "node":
+                logger.info("[TestRunnerAgent] Installing Node deps via npm install...")
+                npm_rc, npm_out, npm_err = _safe_run(
+                    ["npm", "install", "--legacy-peer-deps"],
+                    cwd=repo_path, timeout=120
+                )
+                if npm_rc != 0:
+                    logger.warning(f"[TestRunnerAgent] npm install exited with {npm_rc}")
+
+            elif language == "python":
+                req_file = os.path.join(repo_path, "requirements.txt")
+                if os.path.exists(req_file):
+                    logger.info("[TestRunnerAgent] Installing Python deps...")
+                    _safe_run(["pip", "install", "-r", req_file], cwd=repo_path, timeout=120)
+
+            # Run the test command
+            logger.info(f"[TestRunnerAgent] Running: {test_command}")
+            parts = test_command.split()
+            returncode, stdout, stderr = _safe_run(parts, cwd=repo_path, timeout=300)
+
+            state.test_stdout = stdout or ""
+            state.test_stderr = stderr or ""
+            state.test_exit_code = returncode
+            state.docker_image_built = True  # flag so we don't re-install deps
+            logger.info(f"[TestRunnerAgent] Tests exit code: {returncode}")
+
+        except Exception as e:
+            logger.error(f"[TestRunnerAgent] Exception during subprocess run: {e}")
+            state.test_stdout = state.test_stdout or ""
+            state.test_stderr = state.test_stderr or str(e)
+            state.test_exit_code = 1
+
+        return state
+
+    def _run_with_docker(self, state: SharedState, repo_path: str, language: str, test_command: str) -> SharedState:
+        """Run tests inside Docker container (original behavior)."""
         build_context = tempfile.mkdtemp(prefix="cicd_heal_")
         try:
-            # Copy repo files into build context
             repo_dest = os.path.join(build_context, "app_src")
             shutil.copytree(repo_path, repo_dest, dirs_exist_ok=True)
 
-            # Generate .dockerignore for faster builds
             dockerignore_path = os.path.join(repo_dest, ".dockerignore")
             if not os.path.exists(dockerignore_path):
                 with open(dockerignore_path, "w", encoding="utf-8") as f:
                     f.write(DOCKERIGNORE_CONTENT)
 
-            # Write Dockerfile
             dockerfile_content = self._generate_dockerfile(language, test_command)
             dockerfile_path = os.path.join(repo_dest, "Dockerfile.cicd")
             with open(dockerfile_path, "w", encoding="utf-8") as f:
                 f.write(dockerfile_content)
 
-            # ── Docker build strategy ──
             if not state.docker_image_built:
-                # First iteration: full build (installs deps)
                 build_ok, build_stdout, build_stderr = self._docker_build(repo_dest, self.BASE_IMAGE_TAG)
                 if not build_ok:
                     state.test_exit_code = 1
@@ -112,11 +168,7 @@ class TestRunnerAgent:
                 state.docker_image_built = True
                 logger.info("[TestRunnerAgent] ✅ Base Docker image built successfully.")
             else:
-                # Subsequent iterations: rebuild but with Docker layer cache
-                # The dep-install layers are cached, only COPY . . layer rebuilds
-                build_ok, build_stdout, build_stderr = self._docker_build(
-                    repo_dest, self.BASE_IMAGE_TAG
-                )
+                build_ok, build_stdout, build_stderr = self._docker_build(repo_dest, self.BASE_IMAGE_TAG)
                 if not build_ok:
                     state.test_exit_code = 1
                     state.test_stdout = build_stdout or ""
@@ -124,7 +176,6 @@ class TestRunnerAgent:
                     return state
                 logger.info("[TestRunnerAgent] ♻️ Docker image rebuilt (cached deps).")
 
-            # Run tests
             run_ok, run_stdout, run_stderr, exit_code = self._docker_run()
             state.test_stdout = run_stdout or ""
             state.test_stderr = run_stderr or ""
@@ -139,7 +190,6 @@ class TestRunnerAgent:
 
         finally:
             shutil.rmtree(build_context, ignore_errors=True)
-            self._docker_cleanup()
 
         return state
 
