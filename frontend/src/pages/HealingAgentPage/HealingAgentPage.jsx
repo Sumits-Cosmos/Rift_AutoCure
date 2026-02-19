@@ -17,6 +17,7 @@ const STATUS_CONFIG = {
 };
 
 const BUG_TYPE_COLORS = {
+    DEPENDENCY: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
     STRUCTURAL: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
     SYNTAX: 'bg-red-500/20 text-red-300 border-red-500/30',
     LOGIC: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
