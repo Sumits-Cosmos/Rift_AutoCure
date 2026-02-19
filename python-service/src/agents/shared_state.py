@@ -13,7 +13,9 @@ class FixRecord:
     bug_type: str = ""
     line: int = 0
     commit_message: str = ""
-    status: str = "Fixed"
+    status: str = "FIXED"
+    output_line: str = ""
+    fix_description: str = ""
 
 
 @dataclass
@@ -21,6 +23,7 @@ class SharedState:
     """Shared state container passed between all agents in the pipeline."""
 
     # --- Input ---
+    run_id: str = ""
     repo_url: str = ""
     team_name: str = ""
     leader_name: str = ""
@@ -48,7 +51,11 @@ class SharedState:
     current_iteration: int = 0
     total_failures: int = 0
     total_fixes: int = 0
+    total_commits: int = 0
     final_status: str = "PENDING"  # PASSED | FAILED | PARTIAL
+
+    # --- CI/CD Timeline ---
+    cicd_timeline: List[dict] = field(default_factory=list)
 
     # --- Timing ---
     start_time: Optional[float] = None

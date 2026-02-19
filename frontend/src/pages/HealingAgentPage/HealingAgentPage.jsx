@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
     GitBranch, Play, Clock, CheckCircle2, XCircle, AlertCircle,
     Loader2, ChevronRight, Bug, Wrench, Timer, Trophy, RotateCcw,
-    Code2, Terminal, Activity
+    Code2, Terminal, Activity, Users, User
 } from 'lucide-react';
 import { startHealingAgent, getAgentStatus } from '../../services/healingService';
 
@@ -14,6 +14,7 @@ const STATUS_CONFIG = {
     PARTIAL: { icon: AlertCircle, color: 'text-amber-400', bg: 'bg-amber-400/10', label: 'Partial' },
     FAILED: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-400/10', label: 'Failed' },
     ERROR: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-500/10', label: 'Error' },
+    COMPLETE: { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-400/10', label: 'Complete' },
 };
 
 const BUG_TYPE_COLORS = {
@@ -24,16 +25,6 @@ const BUG_TYPE_COLORS = {
     LINTING: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
     INDENTATION: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
 };
-
-function calcScore(result) {
-    if (!result) return null;
-    let score = 100;
-    const timeMins = (result.time_taken_seconds || 0) / 60;
-    if (timeMins < 5) score += 10;
-    const commits = result.total_fixes || 0;
-    if (commits > 20) score -= (commits - 20) * 2;
-    return Math.max(0, score);
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -48,36 +39,67 @@ function StatusBadge({ status }) {
     );
 }
 
+function CIStatusBadge({ status }) {
+    const isPassed = status === 'PASSED';
+    return (
+        <div className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-lg font-black ${isPassed
+                ? 'bg-emerald-500/20 text-emerald-300 border-2 border-emerald-500/40'
+                : 'bg-red-500/20 text-red-300 border-2 border-red-500/40'
+            }`}>
+            {isPassed ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
+            {isPassed ? 'PASSED' : 'FAILED'}
+        </div>
+    );
+}
+
 function RunSummaryCard({ job, result }) {
     if (!job) return null;
     const duration = result?.time_taken_seconds;
+    const formatTime = (s) => {
+        if (!s) return '—';
+        const mins = Math.floor(s / 60);
+        const secs = Math.floor(s % 60);
+        return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    };
+
     return (
         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6 space-y-4">
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                     <Activity size={18} className="text-indigo-400" /> Run Summary
                 </h3>
-                <StatusBadge status={job.status} />
+                {result?.ci_status && <CIStatusBadge status={result.ci_status} />}
+                {!result?.ci_status && <StatusBadge status={job.status} />}
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
-                <InfoRow label="Repository" value={job.repo_url} truncate />
-                <InfoRow label="Branch" value={result?.branch || '—'} mono />
+                <InfoRow label="Repository" value={result?.repo_url || job.repo_url} truncate />
+                <InfoRow label="Branch" value={result?.branch_name || '—'} mono />
+                <InfoRow label="Team Name" value={result?.team_name || job.team_name || '—'} icon={<Users size={12} className="text-indigo-400" />} />
+                <InfoRow label="Leader Name" value={result?.leader_name || job.leader_name || '—'} icon={<User size={12} className="text-indigo-400" />} />
                 <InfoRow label="Language" value={result?.language || '—'} />
                 <InfoRow label="Framework" value={result?.test_framework || '—'} />
-                <InfoRow label="Failures detected" value={result?.total_failures ?? '—'} />
-                <InfoRow label="Fixes applied" value={result?.total_fixes ?? '—'} />
-                <InfoRow label="Iterations used" value={result ? `${result.iterations_used}/${5}` : '—'} />
-                <InfoRow label="Time taken" value={duration ? `${duration.toFixed(1)}s` : '—'} />
+                <InfoRow label="Failures detected" value={result?.total_failures ?? '—'} highlight={result?.total_failures > 0 ? 'red' : null} />
+                <InfoRow label="Fixes applied" value={result?.total_fixes ?? '—'} highlight={result?.total_fixes > 0 ? 'green' : null} />
+                <InfoRow label="Total commits" value={result?.total_commits ?? '—'} />
+                <InfoRow label="Iterations used" value={result ? `${result.iterations_used}/${result.max_retries || 5}` : '—'} />
+                <div className="col-span-2">
+                    <InfoRow label="Time taken" value={formatTime(duration)} />
+                </div>
             </div>
         </div>
     );
 }
 
-function InfoRow({ label, value, mono, truncate }) {
+function InfoRow({ label, value, mono, truncate, icon, highlight }) {
+    const highlightClass = highlight === 'red'
+        ? 'text-red-300'
+        : highlight === 'green'
+            ? 'text-emerald-300'
+            : 'text-white';
     return (
         <div className="bg-white/5 rounded-xl p-3 min-w-0">
-            <p className="text-xs text-slate-400 mb-0.5">{label}</p>
-            <p className={`text-sm font-semibold text-white ${mono ? 'font-mono' : ''} ${truncate ? 'truncate' : ''}`}>
+            <p className="text-xs text-slate-400 mb-0.5 flex items-center gap-1">{icon}{label}</p>
+            <p className={`text-sm font-semibold ${highlightClass} ${mono ? 'font-mono' : ''} ${truncate ? 'truncate' : ''}`}>
                 {String(value)}
             </p>
         </div>
@@ -108,87 +130,116 @@ function FixesTable({ fixes }) {
                         <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-wider">
                             <th className="px-4 py-3 text-left">File</th>
                             <th className="px-4 py-3 text-left">Bug Type</th>
-                            <th className="px-4 py-3 text-left">Line</th>
+                            <th className="px-4 py-3 text-left">Line #</th>
                             <th className="px-4 py-3 text-left">Commit Message</th>
                             <th className="px-4 py-3 text-left">Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {fixes.map((fix, i) => (
-                            <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                                <td className="px-4 py-3 font-mono text-slate-200 text-xs">{fix.file}</td>
-                                <td className="px-4 py-3">
-                                    <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
-                                        {fix.bug_type}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-3 text-slate-300 font-mono">{fix.line}</td>
-                                <td className="px-4 py-3 text-slate-300 text-xs max-w-xs truncate" title={fix.commit_message}>
-                                    {fix.commit_message}
-                                </td>
-                                <td className="px-4 py-3">
-                                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                                        {fix.status}
-                                    </span>
-                                </td>
-                            </tr>
-                        ))}
+                        {fixes.map((fix, i) => {
+                            const isFixed = fix.status === 'FIXED' || fix.status === 'Fixed';
+                            return (
+                                <tr key={i} className={`border-b border-white/5 transition-colors ${isFixed ? 'hover:bg-emerald-500/5' : 'hover:bg-red-500/5'
+                                    }`}>
+                                    <td className="px-4 py-3 font-mono text-slate-200 text-xs">{fix.file}</td>
+                                    <td className="px-4 py-3">
+                                        <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
+                                            {fix.bug_type}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-slate-300 font-mono">{fix.line_number ?? fix.line}</td>
+                                    <td className="px-4 py-3 text-slate-300 text-xs max-w-xs truncate" title={fix.commit_message}>
+                                        {fix.commit_message}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${isFixed
+                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                                : 'bg-red-500/20 text-red-300 border-red-500/30'
+                                            }`}>
+                                            {isFixed ? '✓ Fixed' : '✗ Failed'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
+            </div>
+            {/* Output Lines — exact format judges check */}
+            <div className="px-6 py-4 border-t border-white/10 space-y-1">
+                <p className="text-xs text-slate-400 mb-2 font-medium">Test Case Output (exact format):</p>
+                {fixes.map((fix, i) => (
+                    fix.output_line && (
+                        <div key={i} className="font-mono text-xs text-indigo-300 bg-indigo-500/5 rounded-lg px-3 py-2 border border-indigo-500/10">
+                            {fix.output_line}
+                        </div>
+                    )
+                ))}
             </div>
         </div>
     );
 }
 
-function CITimeline({ iterations, maxIterations = 5, timestamps }) {
-    if (!iterations || iterations === 0) return null;
+function CITimeline({ timeline, maxRetries = 5 }) {
+    if (!timeline || timeline.length === 0) return null;
     return (
         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-1">
                 <Timer size={18} className="text-indigo-400" />
-                <h3 className="text-lg font-bold text-white">CI/CD Timeline</h3>
+                <h3 className="text-lg font-bold text-white">CI/CD Status Timeline</h3>
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-                {Array.from({ length: maxIterations }).map((_, i) => {
-                    const iter = i + 1;
-                    const done = iter <= iterations;
-                    const current = iter === iterations;
+            <p className="text-xs text-slate-400 mb-4">
+                {timeline.length}/{maxRetries} retries used
+            </p>
+            <div className="space-y-3">
+                {timeline.map((entry, i) => {
+                    const isPassed = entry.status === 'PASSED';
                     return (
-                        <div key={i} className="flex items-center gap-2">
-                            <div className={`
-                flex items-center justify-center rounded-full text-xs font-bold
-                w-10 h-10 border-2 transition-all duration-300
-                ${done
-                                    ? current
-                                        ? 'bg-indigo-500 border-indigo-400 text-white scale-110 shadow-lg shadow-indigo-500/30'
-                                        : 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                                    : 'bg-white/5 border-white/20 text-slate-500'
-                                }
-              `}>
-                                {iter}/{maxIterations}
+                        <div key={i} className="flex items-center gap-3">
+                            {/* Circle node */}
+                            <div className={`flex items-center justify-center rounded-full text-xs font-bold w-10 h-10 border-2 shrink-0 transition-all duration-300 ${isPassed
+                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                                    : 'bg-red-500/20 border-red-500 text-red-300'
+                                }`}>
+                                {isPassed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
                             </div>
-                            {iter < maxIterations && (
-                                <ChevronRight size={16} className={done ? 'text-emerald-400' : 'text-slate-600'} />
+                            {/* Details */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold text-white">Run #{entry.iteration}</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${isPassed
+                                            ? 'bg-emerald-500/20 text-emerald-300'
+                                            : 'bg-red-500/20 text-red-300'
+                                        }`}>
+                                        {entry.status}
+                                    </span>
+                                    {entry.failures_count > 0 && (
+                                        <span className="text-xs text-slate-400">
+                                            {entry.failures_count} failure{entry.failures_count !== 1 ? 's' : ''}
+                                        </span>
+                                    )}
+                                </div>
+                                {entry.timestamp && (
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        {new Date(entry.timestamp).toLocaleTimeString()}
+                                    </p>
+                                )}
+                            </div>
+                            {/* Connector */}
+                            {i < timeline.length - 1 && (
+                                <div className="absolute left-5 mt-10 w-0.5 h-3 bg-white/10" />
                             )}
                         </div>
                     );
                 })}
             </div>
-            {timestamps && (
-                <p className="text-xs text-slate-400 mt-3">
-                    Started: {new Date(timestamps.start * 1000).toLocaleTimeString()}
-                </p>
-            )}
         </div>
     );
 }
 
 function ScoreBoard({ result }) {
-    if (!result) return null;
-    const score = calcScore(result);
-    const timeMins = (result.time_taken_seconds || 0) / 60;
-    const speedBonus = timeMins < 5 ? 10 : 0;
-    const commitPenalty = result.total_fixes > 20 ? (result.total_fixes - 20) * 2 : 0;
+    if (!result?.score) return null;
+    const score = result.score;
 
     return (
         <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 backdrop-blur-sm p-6">
@@ -198,22 +249,42 @@ function ScoreBoard({ result }) {
             </div>
             <div className="flex items-center justify-between mb-4">
                 <span className="text-slate-300 text-sm">Final Score</span>
-                <span className={`text-4xl font-black ${score >= 100 ? 'text-emerald-400' : score >= 80 ? 'text-yellow-400' : 'text-red-400'}`}>
-                    {score}
+                <span className={`text-4xl font-black ${score.final >= 100 ? 'text-emerald-400' : score.final >= 80 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {score.final}
                 </span>
+            </div>
+            {/* Score bar visualization */}
+            <div className="mb-4">
+                <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                    <div
+                        className={`h-full rounded-full transition-all duration-1000 ${score.final >= 100 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                                : score.final >= 80 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400'
+                                    : 'bg-gradient-to-r from-red-500 to-red-400'
+                            }`}
+                        style={{ width: `${Math.min(100, (score.final / 110) * 100)}%` }}
+                    />
+                </div>
             </div>
             <div className="space-y-2 text-sm">
                 <ScoreLine label="Base Score" value="+100" color="text-slate-300" />
                 <ScoreLine
-                    label={`Speed Bonus (${timeMins.toFixed(1)} min)`}
-                    value={speedBonus > 0 ? `+${speedBonus}` : '0'}
-                    color={speedBonus > 0 ? 'text-emerald-400' : 'text-slate-500'}
+                    label={`Speed Bonus (${Math.floor((score.time_taken_seconds || 0) / 60)}m ${Math.floor((score.time_taken_seconds || 0) % 60)}s)`}
+                    value={score.speed_bonus > 0 ? `+${score.speed_bonus}` : '0'}
+                    color={score.speed_bonus > 0 ? 'text-emerald-400' : 'text-slate-500'}
                 />
                 <ScoreLine
-                    label={`Commit Penalty (${result.total_fixes} commits)`}
-                    value={commitPenalty > 0 ? `-${commitPenalty}` : '0'}
-                    color={commitPenalty > 0 ? 'text-red-400' : 'text-slate-500'}
+                    label={`Commit Penalty (${result.total_commits || 0} commits)`}
+                    value={score.efficiency_penalty > 0 ? `-${score.efficiency_penalty}` : '0'}
+                    color={score.efficiency_penalty > 0 ? 'text-red-400' : 'text-slate-500'}
                 />
+                <div className="border-t border-white/10 pt-2 mt-2">
+                    <div className="flex justify-between items-center">
+                        <span className="text-slate-300 font-medium">
+                            100 (base) + {score.speed_bonus} (speed) - {score.efficiency_penalty} (penalty)
+                        </span>
+                        <span className="font-bold text-white">= {score.final}</span>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -234,21 +305,26 @@ export default function HealingAgentPage() {
     const [form, setForm] = useState({ repo_url: '', team_name: '', leader_name: '', retry_limit: 5 });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [job, setJob] = useState(null);          // { job_id, status, ... }
-    const [result, setResult] = useState(null);    // result object from backend
+    const [job, setJob] = useState(null);
+    const [result, setResult] = useState(null);
     const pollRef = useRef(null);
 
     // Start polling when we have a job
     useEffect(() => {
         if (!job?.job_id) return;
-        if (['PASSED', 'FAILED', 'PARTIAL', 'ERROR'].includes(job.status)) return;
+        if (['PASSED', 'FAILED', 'PARTIAL', 'ERROR', 'COMPLETE'].includes(job.status)) return;
 
         pollRef.current = setInterval(async () => {
             try {
                 const data = await getAgentStatus(job.job_id);
                 setJob(data);
                 if (data.result) setResult(data.result);
-                if (['PASSED', 'FAILED', 'PARTIAL', 'ERROR'].includes(data.status)) {
+                if (['PASSED', 'FAILED', 'PARTIAL', 'ERROR', 'COMPLETE'].includes(data.status)) {
+                    clearInterval(pollRef.current);
+                    setLoading(false);
+                }
+                // Also check result.status for completion
+                if (data.result?.status && ['PASSED', 'FAILED'].includes(data.result.status)) {
                     clearInterval(pollRef.current);
                     setLoading(false);
                 }
@@ -343,7 +419,7 @@ export default function HealingAgentPage() {
                                 <input
                                     type="text"
                                     id="team-name-input"
-                                    placeholder="e.g. AlphaTeam"
+                                    placeholder="e.g. RIFT ORGANISERS"
                                     value={form.team_name}
                                     onChange={(e) => setForm(f => ({ ...f, team_name: e.target.value }))}
                                     className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all"
@@ -355,7 +431,7 @@ export default function HealingAgentPage() {
                                 <input
                                     type="text"
                                     id="leader-name-input"
-                                    placeholder="e.g. JohnDoe"
+                                    placeholder="e.g. Saiyam Kumar"
                                     value={form.leader_name}
                                     onChange={(e) => setForm(f => ({ ...f, leader_name: e.target.value }))}
                                     className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all"
@@ -427,10 +503,10 @@ export default function HealingAgentPage() {
                 {/* Loading / Agent Status */}
                 {job && (
                     <div className="space-y-6">
-                        {/* Timeline */}
+                        {/* CI/CD Timeline */}
                         <CITimeline
-                            iterations={result?.iterations_used ?? (job.status === 'RUNNING' ? 1 : 0)}
-                            maxIterations={form.retry_limit}
+                            timeline={result?.cicd_timeline}
+                            maxRetries={result?.max_retries || form.retry_limit}
                         />
 
                         {/* Summary grid */}

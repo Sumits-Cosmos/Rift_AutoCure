@@ -157,14 +157,19 @@ def agent_status(job_id: str):
     if job_id not in _jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
     job = _jobs[job_id]
-    return {
+    response = {
         "job_id": job_id,
         "status": job["status"],
-        "result": job.get("result"),
         "repo_url": job.get("repo_url"),
         "team_name": job.get("team_name"),
         "leader_name": job.get("leader_name"),
     }
+    # Merge the full result dict into the response
+    if job.get("result") and isinstance(job["result"], dict):
+        response["result"] = job["result"]
+    else:
+        response["result"] = None
+    return response
 
 
 @app.get("/agent-jobs")
