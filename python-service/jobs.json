@@ -1765,5 +1765,13 @@
         "message": "Pipeline finished with status: PASSED"
       }
     ]
+  },
+  "ad331ce5-dcba-4e2e-b8b2-f315dd8d8078": {
+    "status": "QUEUED",
+    "result": null,
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1.git",
+    "team_name": "RIFT",
+    "leader_name": "oasid",
+    "created_at": 1771523378.974637
   }
 }

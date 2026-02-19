@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
     GitBranch, Play, Clock, CheckCircle2, XCircle, AlertCircle,
-    Loader2, ChevronRight, Bug, Wrench, Timer, Trophy, RotateCcw,
+    Loader2, Bug, Wrench, Timer, Trophy, RotateCcw,
     Code2, Terminal, Activity, ArrowUpRight, MonitorUp
 } from 'lucide-react';
 import { startHealingAgent, getAgentStatus, getAgentLogs } from '../../services/healingService';
@@ -50,6 +50,117 @@ function StatusBadge({ status }) {
     );
 }
 
+// ─── Full-width Progress Header ──────────────────────────────────────────────
+
+function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isRunning }) {
+    const progress = maxIterations > 0 ? (iterations / maxIterations) * 100 : 0;
+    const isFinal = ['PASSED', 'FAILED', 'PARTIAL', 'ERROR'].includes(status);
+    const isPassed = status === 'PASSED';
+
+    const elapsed = timestamps?.start
+        ? ((timestamps?.end || Date.now() / 1000) - timestamps.start).toFixed(0)
+        : null;
+
+    return (
+        <div className="glass-card p-5 animate-fadeInUp" role="region" aria-label="Healing progress">
+            {/* Top row: status info */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isRunning ? 'bg-blue-500/15 border border-blue-500/30' :
+                            isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
+                                isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
+                                    'bg-indigo-500/15 border border-indigo-500/30'
+                        }`}>
+                        {isRunning ? (
+                            <Loader2 size={18} className="text-blue-400 animate-spin" />
+                        ) : isPassed ? (
+                            <CheckCircle2 size={18} className="text-emerald-400" />
+                        ) : isFinal ? (
+                            <XCircle size={18} className="text-rose-400" />
+                        ) : (
+                            <Activity size={18} className="text-indigo-400" />
+                        )}
+                    </div>
+                    <div>
+                        <h2 className="text-white font-bold text-base">
+                            {isRunning ? 'Agent Running' : isPassed ? 'Pipeline Healed' : isFinal ? 'Run Complete' : 'Healing Progress'}
+                        </h2>
+                        <p className="text-xs text-slate-500">
+                            Iteration {iterations}/{maxIterations}
+                            {elapsed && <span className="ml-3 text-slate-600">⏱ {elapsed}s elapsed</span>}
+                        </p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    {timestamps?.start && (
+                        <span className="text-xs text-slate-500 flex items-center gap-1 bg-white/[0.03] px-2.5 py-1 rounded-lg">
+                            <Clock size={11} />
+                            {new Date(timestamps.start * 1000).toLocaleTimeString()}
+                        </span>
+                    )}
+                    <StatusBadge status={status} />
+                </div>
+            </div>
+
+            {/* Progress bar — full width */}
+            <div
+                className="w-full h-2.5 bg-white/[0.05] rounded-full overflow-hidden relative"
+                role="progressbar"
+                aria-valuenow={iterations}
+                aria-valuemin={0}
+                aria-valuemax={maxIterations}
+                aria-label={`Progress: ${iterations} of ${maxIterations} iterations`}
+            >
+                <div
+                    className={`h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden ${isPassed
+                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                            : isFinal
+                                ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                                : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
+                        }`}
+                    style={{ width: `${isFinal && !isPassed ? 100 : Math.max(progress, 5)}%` }}
+                >
+                    {/* Shimmer overlay */}
+                    {isRunning && (
+                        <div
+                            className="absolute inset-0 w-1/2"
+                            style={{
+                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent)',
+                                animation: 'progressShimmer 2s ease-in-out infinite',
+                            }}
+                        />
+                    )}
+                </div>
+            </div>
+
+            {/* Iteration dots */}
+            <div className="flex items-center gap-1 mt-3">
+                {Array.from({ length: maxIterations }).map((_, i) => {
+                    const done = i + 1 <= iterations;
+                    const current = i + 1 === iterations && isRunning;
+                    return (
+                        <div key={i} className="flex items-center flex-1 gap-1">
+                            <div
+                                className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${current
+                                        ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
+                                        : done
+                                            ? 'bg-emerald-400/70'
+                                            : 'bg-white/[0.08]'
+                                    }`}
+                            />
+                            {i < maxIterations - 1 && (
+                                <div className={`flex-1 h-px ${done ? 'bg-emerald-500/30' : 'bg-white/[0.05]'}`} />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// ─── Run Summary Card ─────────────────────────────────────────────────────────
+
 function RunSummaryCard({ job, result }) {
     if (!job) return null;
     const duration = result?.time_taken_seconds;
@@ -57,10 +168,10 @@ function RunSummaryCard({ job, result }) {
     const isFinalFailed = ['FAILED', 'ERROR'].includes(job.status);
 
     return (
-        <div className="glass-card p-6 space-y-5 animate-fadeInUp">
+        <div className="glass-card p-5 space-y-4 animate-fadeInUp">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Activity size={18} className="text-indigo-400" />
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Activity size={16} className="text-indigo-400" />
                     Run Summary
                 </h3>
                 <StatusBadge status={job.status} />
@@ -68,26 +179,26 @@ function RunSummaryCard({ job, result }) {
 
             {/* Final CI/CD Status Badge */}
             {(isFinalPassed || isFinalFailed) && (
-                <div className={`flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold ${isFinalPassed
+                <div className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold ${isFinalPassed
                     ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
                     : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
                     }`}>
-                    {isFinalPassed ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-                    Final CI/CD Status: {isFinalPassed ? 'PASSED' : 'FAILED'}
+                    {isFinalPassed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                    Final CI/CD: {isFinalPassed ? 'PASSED' : 'FAILED'}
                 </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-2.5 text-sm">
                 <InfoRow label="Repository" value={job.repo_url} truncate />
                 <InfoRow label="Team" value={job.team_name} />
                 <InfoRow label="Leader" value={job.leader_name} />
                 <InfoRow label="Branch" value={result?.branch || '—'} mono />
                 <InfoRow label="Language" value={result?.language || '—'} />
                 <InfoRow label="Framework" value={result?.test_framework || '—'} />
-                <InfoRow label="Failures Detected" value={result?.total_failures ?? '—'} highlight={result?.total_failures > 0 ? 'rose' : null} />
-                <InfoRow label="Fixes Applied" value={result?.total_fixes ?? '—'} highlight={result?.total_fixes > 0 ? 'emerald' : null} />
-                <InfoRow label="Iterations Used" value={result ? `${result.iterations_used}/${5}` : '—'} />
-                <InfoRow label="Total Time" value={duration ? `${duration.toFixed(1)}s` : '—'} />
+                <InfoRow label="Failures" value={result?.total_failures ?? '—'} highlight={result?.total_failures > 0 ? 'rose' : null} />
+                <InfoRow label="Fixes" value={result?.total_fixes ?? '—'} highlight={result?.total_fixes > 0 ? 'emerald' : null} />
+                <InfoRow label="Iterations" value={result ? `${result.iterations_used}/${5}` : '—'} />
+                <InfoRow label="Time" value={duration ? `${duration.toFixed(1)}s` : '—'} />
                 {result?.deployment_url && (
                     <div className="col-span-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 flex items-center justify-between">
                         <div>
@@ -117,8 +228,8 @@ function InfoRow({ label, value, mono, truncate, highlight }) {
     else if (highlight === 'emerald') highlightClass = 'text-emerald-400';
 
     return (
-        <div className="bg-white/[0.03] rounded-xl p-3 min-w-0 hover:bg-white/[0.05] transition-colors">
-            <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+        <div className="bg-white/[0.03] rounded-xl p-2.5 min-w-0 hover:bg-white/[0.05] transition-colors group">
+            <p className="text-[11px] text-slate-500 mb-0.5 group-hover:text-slate-400 transition-colors">{label}</p>
             <p className={`text-sm font-semibold ${highlightClass || 'text-white'} ${mono ? 'font-mono text-xs' : ''} ${truncate ? 'truncate' : ''}`}>
                 {String(value)}
             </p>
@@ -126,51 +237,53 @@ function InfoRow({ label, value, mono, truncate, highlight }) {
     );
 }
 
+// ─── Fixes Table ──────────────────────────────────────────────────────────────
+
 function FixesTable({ fixes }) {
     if (!fixes || fixes.length === 0) {
         return (
-            <div className="glass-card p-8 text-center animate-fadeInUp">
-                <Wrench size={36} className="mx-auto mb-3 text-slate-600" />
+            <div className="glass-card p-6 text-center animate-fadeInUp">
+                <Wrench size={28} className="mx-auto mb-2 text-slate-600" />
                 <p className="text-sm text-slate-500">No fixes applied yet.</p>
             </div>
         );
     }
     return (
         <div className="glass-card overflow-hidden animate-fadeInUp">
-            <div className="px-6 py-4 border-b border-white/[0.06] flex items-center gap-2">
-                <Wrench size={18} className="text-indigo-400" />
-                <h3 className="text-lg font-bold text-white">Applied Fixes</h3>
+            <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center gap-2">
+                <Wrench size={16} className="text-indigo-400" />
+                <h3 className="text-base font-bold text-white">Applied Fixes</h3>
                 <span className="ml-auto text-xs bg-indigo-500/15 text-indigo-300 px-2.5 py-1 rounded-full border border-indigo-500/25 font-bold">
                     {fixes.length} fix{fixes.length !== 1 ? 'es' : ''}
                 </span>
             </div>
             <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" role="table" aria-label="Applied fixes">
                     <thead>
                         <tr className="border-b border-white/[0.06] text-slate-500 text-xs uppercase tracking-wider">
-                            <th className="px-5 py-3.5 text-left">File</th>
-                            <th className="px-5 py-3.5 text-left">Bug Type</th>
-                            <th className="px-5 py-3.5 text-left">Line</th>
-                            <th className="px-5 py-3.5 text-left">Commit Message</th>
-                            <th className="px-5 py-3.5 text-left">Status</th>
+                            <th className="px-5 py-3 text-left" scope="col">File</th>
+                            <th className="px-5 py-3 text-left" scope="col">Bug Type</th>
+                            <th className="px-5 py-3 text-left" scope="col">Line</th>
+                            <th className="px-5 py-3 text-left" scope="col">Commit Message</th>
+                            <th className="px-5 py-3 text-left" scope="col">Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         {fixes.map((fix, i) => (
-                            <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors group">
-                                <td className="px-5 py-3.5 font-mono text-slate-300 text-xs">
+                            <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
+                                <td className="px-5 py-3 font-mono text-slate-300 text-xs">
                                     <span className="bg-white/[0.05] px-2 py-1 rounded">{fix.file}</span>
                                 </td>
-                                <td className="px-5 py-3.5">
+                                <td className="px-5 py-3">
                                     <span className={`text-xs px-2.5 py-1 rounded-full border font-bold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/15 text-slate-300 border-slate-500/30'}`}>
                                         {fix.bug_type}
                                     </span>
                                 </td>
-                                <td className="px-5 py-3.5 text-slate-300 font-mono text-xs">{fix.line}</td>
-                                <td className="px-5 py-3.5 text-slate-400 text-xs max-w-xs truncate" title={fix.commit_message}>
+                                <td className="px-5 py-3 text-slate-300 font-mono text-xs">{fix.line}</td>
+                                <td className="px-5 py-3 text-slate-400 text-xs max-w-xs truncate" title={fix.commit_message}>
                                     {fix.commit_message}
                                 </td>
-                                <td className="px-5 py-3.5">
+                                <td className="px-5 py-3">
                                     {fix.status === 'failed' ? (
                                         <span className="text-xs px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/25 font-bold flex items-center gap-1 w-fit">
                                             <XCircle size={12} /> Failed
@@ -190,82 +303,7 @@ function FixesTable({ fixes }) {
     );
 }
 
-function CITimeline({ iterations, maxIterations = 5, timestamps }) {
-    if (!iterations && iterations !== 0) return null;
-    return (
-        <div className="glass-card p-6 animate-fadeInUp">
-            <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2">
-                    <Timer size={18} className="text-indigo-400" />
-                    <h3 className="text-lg font-bold text-white">CI/CD Status Timeline</h3>
-                </div>
-                <span className="text-xs text-slate-500 bg-white/[0.05] px-3 py-1 rounded-full">
-                    {iterations}/{maxIterations} iterations
-                </span>
-            </div>
-
-            {/* Timeline track */}
-            <div className="flex items-center gap-0 mb-4">
-                {Array.from({ length: maxIterations }).map((_, i) => {
-                    const iter = i + 1;
-                    const done = iter <= iterations;
-                    const current = iter === iterations;
-                    return (
-                        <div key={i} className="flex items-center flex-1">
-                            {/* Node */}
-                            <div className="relative flex flex-col items-center">
-                                <div className={`
-                                    flex items-center justify-center rounded-full text-xs font-bold
-                                    w-11 h-11 border-2 transition-all duration-500
-                                    ${done
-                                        ? current
-                                            ? 'bg-indigo-500 border-indigo-400 text-white shadow-lg shadow-indigo-500/40 scale-110'
-                                            : 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300'
-                                        : 'bg-white/[0.03] border-white/10 text-slate-600'
-                                    }
-                                `}>
-                                    {done ? (current ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />) : iter}
-                                </div>
-                                {/* Label below node */}
-                                <span className={`text-[10px] mt-1.5 ${done ? 'text-slate-300' : 'text-slate-600'}`}>
-                                    Run {iter}
-                                </span>
-                                {/* Pass/Fail badge */}
-                                {done && (
-                                    <span className={`text-[9px] font-bold mt-0.5 ${current ? 'text-indigo-300' : 'text-emerald-400'
-                                        }`}>
-                                        {current ? (iterations === maxIterations ? '●' : '...') : '✓ Pass'}
-                                    </span>
-                                )}
-                            </div>
-                            {/* Connector line */}
-                            {iter < maxIterations && (
-                                <div className={`flex-1 h-0.5 mx-1 rounded-full transition-all duration-500 ${done ? 'bg-gradient-to-r from-emerald-500/50 to-emerald-500/20' : 'bg-white/[0.06]'
-                                    }`} />
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Timestamps */}
-            {timestamps && (
-                <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-white/[0.06]">
-                    <span className="flex items-center gap-1">
-                        <Clock size={12} />
-                        Started: {new Date(timestamps.start * 1000).toLocaleTimeString()}
-                    </span>
-                    {timestamps.end && (
-                        <span className="flex items-center gap-1">
-                            <Clock size={12} />
-                            Ended: {new Date(timestamps.end * 1000).toLocaleTimeString()}
-                        </span>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
+// ─── Score Board ──────────────────────────────────────────────────────────────
 
 function ScoreBoard({ result }) {
     if (!result) return null;
@@ -273,26 +311,25 @@ function ScoreBoard({ result }) {
     const timeMins = (result.time_taken_seconds || 0) / 60;
     const speedBonus = timeMins < 5 ? 10 : 0;
     const commitPenalty = result.total_fixes > 20 ? (result.total_fixes - 20) * 2 : 0;
-    const maxScore = 110; // 100 base + 10 speed bonus
+    const maxScore = 110;
     const percentage = Math.min(100, Math.round((score / maxScore) * 100));
 
     return (
-        <div className="glass-card p-6 animate-fadeInUp relative overflow-hidden">
-            {/* Decorative gradient */}
-            <div className="absolute -top-20 -right-20 w-40 h-40 bg-indigo-500/[0.08] rounded-full blur-[60px] pointer-events-none" />
-            <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-purple-500/[0.08] rounded-full blur-[60px] pointer-events-none" />
+        <div className="glass-card p-5 animate-fadeInUp relative overflow-hidden">
+            {/* Decorative gradients */}
+            <div className="absolute -top-16 -right-16 w-32 h-32 bg-indigo-500/[0.08] rounded-full blur-[50px] pointer-events-none" />
+            <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-purple-500/[0.08] rounded-full blur-[50px] pointer-events-none" />
 
             <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-5">
-                    <Trophy size={18} className="text-amber-400" />
-                    <h3 className="text-lg font-bold text-white">Score Breakdown</h3>
+                <div className="flex items-center gap-2 mb-4">
+                    <Trophy size={16} className="text-amber-400" />
+                    <h3 className="text-base font-bold text-white">Score Breakdown</h3>
                 </div>
 
                 {/* Score display */}
-                <div className="flex items-center justify-center mb-6">
-                    <div className="relative w-32 h-32">
-                        {/* Circular progress */}
-                        <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                <div className="flex items-center justify-center mb-5">
+                    <div className="relative w-28 h-28">
+                        <svg className="w-28 h-28 -rotate-90" viewBox="0 0 120 120" aria-hidden="true">
                             <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
                             <circle
                                 cx="60" cy="60" r="52" fill="none"
@@ -304,7 +341,7 @@ function ScoreBoard({ result }) {
                             />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className={`text-3xl font-black ${score >= 100 ? 'text-emerald-400' : score >= 80 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            <span className={`text-2xl font-black ${score >= 100 ? 'text-emerald-400' : score >= 80 ? 'text-amber-400' : 'text-rose-400'}`}>
                                 {score}
                             </span>
                             <span className="text-[10px] text-slate-500 font-medium">POINTS</span>
@@ -313,19 +350,19 @@ function ScoreBoard({ result }) {
                 </div>
 
                 {/* Breakdown */}
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                     <ScoreLine label="Base Score" value="+100" color="text-slate-300" />
                     <ScoreLine
-                        label={`Speed Bonus (${timeMins.toFixed(1)} min)`}
+                        label={`Speed (${timeMins.toFixed(1)} min)`}
                         value={speedBonus > 0 ? `+${speedBonus}` : '—'}
                         color={speedBonus > 0 ? 'text-emerald-400' : 'text-slate-600'}
                     />
                     <ScoreLine
-                        label={`Commit Penalty (${result.total_fixes} commits)`}
+                        label={`Commits (${result.total_fixes})`}
                         value={commitPenalty > 0 ? `-${commitPenalty}` : '—'}
                         color={commitPenalty > 0 ? 'text-rose-400' : 'text-slate-600'}
                     />
-                    <div className="border-t border-white/[0.06] pt-2 mt-3">
+                    <div className="border-t border-white/[0.06] pt-2 mt-2">
                         <ScoreLine label="Final Score" value={score} color={score >= 100 ? 'text-emerald-400' : 'text-amber-400'} bold />
                     </div>
                 </div>
@@ -336,7 +373,7 @@ function ScoreBoard({ result }) {
 
 function ScoreLine({ label, value, color, bold }) {
     return (
-        <div className="flex justify-between items-center py-1">
+        <div className="flex justify-between items-center py-0.5">
             <span className={`text-slate-400 text-sm ${bold ? 'font-bold text-white' : ''}`}>{label}</span>
             <span className={`font-bold ${color} ${bold ? 'text-lg' : 'text-sm'}`}>{value}</span>
         </div>
@@ -367,21 +404,21 @@ function AgentTerminal({ logs, isRunning }) {
     };
 
     return (
-        <div className="glass-card overflow-hidden animate-fadeInUp">
+        <div className="glass-card overflow-hidden animate-fadeInUp flex flex-col sticky top-20" style={{ maxHeight: 'calc(100vh - 7rem)' }}>
             {/* Terminal titlebar */}
-            <div className="flex items-center gap-2 px-5 py-3 bg-white/[0.04] border-b border-white/[0.06]">
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border-b border-white/[0.06] shrink-0">
                 <div className="flex gap-1.5">
                     <div className="w-3 h-3 rounded-full bg-rose-500/80" />
                     <div className="w-3 h-3 rounded-full bg-amber-500/80" />
                     <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
                 </div>
                 <div className="flex items-center gap-2 ml-2">
-                    <MonitorUp size={14} className="text-indigo-400" />
-                    <span className="text-sm font-bold text-white">Agent Status</span>
+                    <MonitorUp size={13} className="text-indigo-400" />
+                    <span className="text-sm font-bold text-white">Agent Terminal</span>
                 </div>
                 {isRunning && (
                     <span className="ml-auto flex items-center gap-1.5 text-xs text-blue-400">
-                        <Loader2 size={12} className="animate-spin" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                         LIVE
                     </span>
                 )}
@@ -390,7 +427,11 @@ function AgentTerminal({ logs, isRunning }) {
             {/* Terminal body */}
             <div
                 ref={scrollRef}
-                className="p-4 font-mono text-[13px] leading-6 max-h-[340px] overflow-y-auto bg-[#0c0e18]"
+                className="p-4 font-mono text-[13px] leading-6 overflow-y-auto bg-[#0c0e18] flex-1"
+                role="log"
+                aria-live="polite"
+                aria-label="Agent output log"
+                style={{ minHeight: '360px' }}
             >
                 {logs.length === 0 ? (
                     <div className="text-slate-600 flex items-center gap-2">
@@ -489,6 +530,8 @@ export default function HealingAgentPage() {
         setLoading(true);
         setJob(null);
         setResult(null);
+        setLogs([]);
+        lastLogTs.current = 0;
 
         try {
             const data = await startHealingAgent(form);
@@ -516,31 +559,31 @@ export default function HealingAgentPage() {
 
     return (
         <div className="min-h-screen relative">
-            <div className="relative z-10 max-w-5xl mx-auto px-4 py-8 space-y-6">
+            <div className="relative z-10 max-w-7xl mx-auto px-4 py-6 space-y-5">
                 {/* Header */}
-                <div className="text-center space-y-3 animate-fadeInUp">
+                <div className="text-center space-y-2 animate-fadeInUp">
                     <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 text-indigo-300 text-sm font-medium">
                         <Activity size={14} />
-                        Autonomous CI/CD Healing
+                        <span>Autonomous CI/CD Healing</span>
                     </div>
                     <h1 className="text-4xl md:text-5xl font-black gradient-text">
                         AI Repair Agent
                     </h1>
-                    <p className="text-slate-400 text-lg max-w-xl mx-auto">
+                    <p className="text-slate-400 text-base max-w-xl mx-auto">
                         Drop in a buggy repository. The agent clones it, runs tests in Docker, classifies failures, and applies LLM-generated fixes automatically.
                     </p>
                 </div>
 
-                {/* ─── 1. Input Section ──────────────────────────────────────── */}
-                <div className="glass-card p-6 animate-fadeInUp stagger-1" style={{ opacity: 0 }}>
-                    <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
-                        <Terminal size={20} className="text-indigo-400" />
+                {/* ─── Input Section ──────────────────────────────────────── */}
+                <div className="glass-card p-5 animate-fadeInUp stagger-1" style={{ opacity: 0 }}>
+                    <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <Terminal size={18} className="text-indigo-400" />
                         Configure Agent Run
                     </h2>
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid md:grid-cols-2 gap-4">
+                    <form onSubmit={handleSubmit} className="space-y-3.5">
+                        <div className="grid md:grid-cols-2 gap-3.5">
                             <div className="md:col-span-2">
-                                <label className="block text-sm font-medium text-slate-300 mb-1.5">GitHub Repository URL</label>
+                                <label htmlFor="repo-url-input" className="block text-sm font-medium text-slate-300 mb-1.5">GitHub Repository URL</label>
                                 <div className="relative">
                                     <Code2 size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
                                     <input
@@ -555,7 +598,7 @@ export default function HealingAgentPage() {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-1.5">Team Name</label>
+                                <label htmlFor="team-name-input" className="block text-sm font-medium text-slate-300 mb-1.5">Team Name</label>
                                 <input
                                     type="text"
                                     id="team-name-input"
@@ -567,7 +610,7 @@ export default function HealingAgentPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-1.5">Team Leader Name</label>
+                                <label htmlFor="leader-name-input" className="block text-sm font-medium text-slate-300 mb-1.5">Team Leader Name</label>
                                 <input
                                     type="text"
                                     id="leader-name-input"
@@ -590,7 +633,7 @@ export default function HealingAgentPage() {
 
                         {/* Max retries */}
                         <div className="flex items-center gap-3">
-                            <label className="text-sm font-medium text-slate-400 shrink-0">Max Retries:</label>
+                            <label htmlFor="retry-limit-input" className="text-sm font-medium text-slate-400 shrink-0">Max Retries:</label>
                             <input
                                 type="number"
                                 id="retry-limit-input"
@@ -603,7 +646,7 @@ export default function HealingAgentPage() {
                         </div>
 
                         {error && (
-                            <div className="flex items-center gap-2 text-rose-300 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+                            <div className="flex items-center gap-2 text-rose-300 text-sm bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3" role="alert">
                                 <XCircle size={16} /> {error}
                             </div>
                         )}
@@ -615,6 +658,7 @@ export default function HealingAgentPage() {
                                 id="run-agent-btn"
                                 disabled={loading}
                                 className="btn-primary flex-1 flex items-center justify-center gap-2 py-3.5 text-base"
+                                aria-label={loading ? 'Agent is currently running' : 'Run healing agent'}
                             >
                                 {loading ? (
                                     <>
@@ -633,6 +677,7 @@ export default function HealingAgentPage() {
                                     type="button"
                                     onClick={handleReset}
                                     className="px-5 py-3.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/[0.05] transition-all flex items-center gap-2 text-sm font-medium"
+                                    aria-label="Reset and start over"
                                 >
                                     <RotateCcw size={16} /> Reset
                                 </button>
@@ -641,31 +686,34 @@ export default function HealingAgentPage() {
                     </form>
                 </div>
 
-                {/* ─── Results Area ──────────────────────────────────────────── */}
+                {/* ─── Dashboard Results Area ─────────────────────────────── */}
                 {job && (
-                    <div className="space-y-6">
-                        {/* 6. Agent Terminal (Live Logs) */}
-                        <AgentTerminal logs={logs} isRunning={loading} />
-
-                        {/* 5. CI/CD Status Timeline */}
-                        <CITimeline
+                    <div className="space-y-5">
+                        {/* 1. Full-width Progress Header */}
+                        <ProgressHeader
                             iterations={result?.iterations_used ?? (job.status === 'RUNNING' ? 1 : 0)}
                             maxIterations={form.retry_limit}
+                            status={job.status}
                             timestamps={result?.timestamps}
+                            isRunning={loading}
                         />
 
-                        {/* 2. Run Summary + 3. Score Breakdown */}
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <RunSummaryCard job={job} result={result} />
-                            <ScoreBoard result={result} />
-                        </div>
+                        {/* 2. Two-column layout: Details (left) | Terminal (right) */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+                            {/* Left column — Details */}
+                            <div className="flex flex-col gap-5">
+                                <RunSummaryCard job={job} result={result} />
+                                <ScoreBoard result={result} />
+                                <FixesTable fixes={result?.fixes} />
+                            </div>
 
-                        {/* 4. Fixes Applied Table */}
-                        <FixesTable fixes={result?.fixes} />
+                            {/* Right column — Terminal */}
+                            <AgentTerminal logs={logs} isRunning={loading} />
+                        </div>
 
                         {/* Error message */}
                         {result?.error && (
-                            <div className="glass-card border-rose-500/20 bg-rose-500/[0.05] p-4 text-rose-300 text-sm flex items-center gap-2">
+                            <div className="glass-card border-rose-500/20 bg-rose-500/[0.05] p-4 text-rose-300 text-sm flex items-center gap-2" role="alert">
                                 <AlertCircle size={16} className="shrink-0" />
                                 <span><strong>Error:</strong> {result.error}</span>
                             </div>
@@ -675,9 +723,9 @@ export default function HealingAgentPage() {
 
                 {/* Empty state */}
                 {!job && (
-                    <div className="text-center py-16 animate-fadeIn">
-                        <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-indigo-500/10 flex items-center justify-center">
-                            <Bug size={36} className="text-indigo-400/60" />
+                    <div className="text-center py-14 animate-fadeIn">
+                        <div className="w-18 h-18 mx-auto mb-4 rounded-2xl bg-indigo-500/10 flex items-center justify-center" style={{ width: '72px', height: '72px' }}>
+                            <Bug size={32} className="text-indigo-400/60" />
                         </div>
                         <p className="text-slate-500 text-sm">Submit a repository above to begin autonomous healing.</p>
                     </div>
