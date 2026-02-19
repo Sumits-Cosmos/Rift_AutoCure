@@ -46,10 +46,12 @@ class SharedState:
     team_name: str = ""
     leader_name: str = ""
     retry_limit: int = 5
+    pat_token: Optional[str] = None
 
     # --- Repo Analysis ---
     repo_path: str = ""
     branch_name: str = ""
+    base_commit: str = ""         # verification start point for squash
     language: str = ""            # e.g. "python", "node"
     test_framework: str = ""      # e.g. "pytest", "jest", "vitest"
     test_command: str = ""        # e.g. "pytest tests/"

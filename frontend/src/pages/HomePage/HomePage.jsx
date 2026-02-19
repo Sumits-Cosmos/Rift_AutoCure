@@ -47,12 +47,6 @@ const HomePage = ({ setPage }) => {
             Launch Healing Agent
             <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
           </button>
-          <button
-            onClick={() => setPage('testing')}
-            className="px-8 py-4 text-lg font-semibold rounded-xl bg-white/[0.06] text-white border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
-          >
-            API Testing
-          </button>
         </div>
       </section>
 

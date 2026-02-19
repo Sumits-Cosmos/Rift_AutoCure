@@ -23,6 +23,7 @@ import shutil
 import logging
 import subprocess
 import tempfile
+from typing import Optional
 
 from .shared_state import SharedState, FixRecord
 from .repo_analyzer import RepoAnalyzerAgent
@@ -59,11 +60,12 @@ class OrchestratorAgent:
         self.fixer = FixGeneratorAgent()
         self.monitor = CIMonitorAgent()
 
-    def run(self, repo_url: str, team_name: str, leader_name: str) -> dict:
+    def run(self, repo_url: str, team_name: str, leader_name: str, pat_token: Optional[str] = None) -> dict:
         state = SharedState(
             repo_url=repo_url,
             team_name=team_name,
             leader_name=leader_name,
+            pat_token=pat_token,
             retry_limit=self.retry_limit,
             start_time=time.time()
         )
@@ -86,7 +88,7 @@ class OrchestratorAgent:
             self._log(f"✅ Repository cloned successfully")
             self._log(f"Creating branch: {state.branch_name}")
             logger.info(f"[OrchestratorAgent] Creating branch: {state.branch_name}")
-            self._create_branch(tmp_dir, state.branch_name)
+            state.base_commit = self._create_branch(tmp_dir, state.branch_name)
             self._log(f"✅ Branch '{state.branch_name}' created")
 
             # ── Step 2: Analyze repo ───────────────────────────────────────
@@ -341,15 +343,64 @@ class OrchestratorAgent:
         return f"{t}_{l}_AI_Fix"
 
     def _git_push(self, state: SharedState):
-        """Push the current branch to origin using system credentials."""
+        """Push the current branch to origin. If PAT is provided, squash and push to remote."""
         repo_path = state.repo_path
         branch = state.branch_name
+        
         logger.info(f"[OrchestratorAgent] Pushing branch {branch} to origin...")
-        
-        # We use the system's git credentials (SSH or credential helper)
-        # So we do NOT override GIT_AUTHOR/COMMITTER with dummy values for the push
-        # (Though we did for commits, which is fine)
-        
+
+        # If we have a PAT, we want to squash all AI commits into one and push to the user's repo
+        if state.pat_token and state.base_commit:
+             try:
+                self._log("Formatting single squash commit...")
+                env = {**os.environ, 
+                       "GIT_AUTHOR_NAME": "AI-Fix-Agent", "GIT_AUTHOR_EMAIL": "ai-fix@rift.local",
+                       "GIT_COMMITTER_NAME": "AI-Fix-Agent", "GIT_COMMITTER_EMAIL": "ai-fix@rift.local"}
+
+                # 1. Soft reset to base commit (staged changes remain)
+                subprocess.run(
+                    ["git", "reset", "--soft", state.base_commit],
+                    cwd=repo_path, check=True, capture_output=True
+                )
+                
+                # 2. Create the final commit
+                commit_msg = (
+                    f"AI Fix: Automated fixes for {state.team_name} / {state.leader_name}\n\n"
+                    f"Fixes applied: {state.cumulative_fixes}\n"
+                    "Agents: Cognitest AI Healing Pipeline"
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    cwd=repo_path, check=True, env=env, capture_output=True
+                )
+                
+                # 3. Construct authenticated URL
+                # Extract user/repo from original URL
+                # e.g. https://github.com/user/repo.git -> user/repo.git
+                # allow various formats
+                clean_url = state.repo_url.replace("https://", "").replace("http://", "")
+                if "@" in clean_url: clean_url = clean_url.split("@")[-1] # remove existing auth if any
+                
+                # Final URL: https://PAT@github.com/user/repo.git
+                auth_url = f"https://{state.pat_token}@{clean_url}"
+                
+                self._log("Pushing cleanup commit to remote...")
+                subprocess.run(
+                    ["git", "push", "-f", auth_url, branch],
+                    cwd=repo_path, check=True, capture_output=True, text=True
+                )
+                
+                state.git_push_status = "Success (Squashed & Pushed)"
+                logger.info("[OrchestratorAgent] ✅ Git push successful (with PAT).")
+                return
+
+             except Exception as e:
+                state.git_push_status = f"Failed (PAT Push): {str(e)}"
+                logger.error(f"[OrchestratorAgent] PAT push failed: {e}")
+                # Fallthrough to normal push attempt if you want, but usually this is terminal for the push step.
+                return
+
+        # Fallback: System credentials push (no squash, just push what we have)
         try:
             # We assume credentials are in the URL or SSH agent is active
             subprocess.run(
@@ -468,17 +519,24 @@ class OrchestratorAgent:
             logger.error(f"[OrchestratorAgent] Clone exception: {e}")
             return False
 
-    def _create_branch(self, repo_path: str, branch_name: str):
+    def _create_branch(self, repo_path: str, branch_name: str) -> str:
         env = {**os.environ, "GIT_AUTHOR_NAME": "AI-Agent", "GIT_AUTHOR_EMAIL": "ai@agent.local",
                "GIT_COMMITTER_NAME": "AI-Agent", "GIT_COMMITTER_EMAIL": "ai@agent.local"}
         try:
+            # Capture base commit before checkout
+            base_commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo_path, text=True
+            ).strip()
+            
             subprocess.run(
                 ["git", "checkout", "-b", branch_name],
                 cwd=repo_path, capture_output=True, text=True, check=True, env=env
             )
-            logger.info(f"[OrchestratorAgent] Branch '{branch_name}' created.")
+            logger.info(f"[OrchestratorAgent] Branch '{branch_name}' created from {base_commit[:7]}.")
+            return base_commit
         except subprocess.CalledProcessError as e:
             logger.warning(f"[OrchestratorAgent] Branch creation warning: {e.stderr}")
+            return ""
 
     def _build_result(self, state: SharedState) -> dict:
         elapsed = 0.0

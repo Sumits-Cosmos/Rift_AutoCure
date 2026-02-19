@@ -9,11 +9,11 @@ const BASE_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:8000';
  * Trigger a new healing agent run.
  * Returns { job_id, status, message }
  */
-export async function startHealingAgent({ repo_url, team_name, leader_name, retry_limit = 5 }) {
+export async function startHealingAgent({ repo_url, team_name, leader_name, retry_limit = 5, pat_token }) {
     const res = await fetch(`${BASE_URL}/run-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_url, team_name, leader_name, retry_limit }),
+        body: JSON.stringify({ repo_url, team_name, leader_name, retry_limit, pat_token }),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
     GitBranch, Play, Clock, CheckCircle2, XCircle, AlertCircle,
     Loader2, Bug, Wrench, Timer, Trophy, RotateCcw,
-    Code2, Terminal, Activity, ArrowUpRight, MonitorUp
+    Code2, Terminal, Activity, ArrowUpRight, MonitorUp, Eye, X, FileCode2, Hash
 } from 'lucide-react';
 import { startHealingAgent, getAgentStatus, getAgentLogs } from '../../services/healingService';
 
@@ -67,9 +67,9 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isRunning ? 'bg-blue-500/15 border border-blue-500/30' :
-                            isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
-                                isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
-                                    'bg-indigo-500/15 border border-indigo-500/30'
+                        isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
+                            isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
+                                'bg-indigo-500/15 border border-indigo-500/30'
                         }`}>
                         {isRunning ? (
                             <Loader2 size={18} className="text-blue-400 animate-spin" />
@@ -113,10 +113,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             >
                 <div
                     className={`h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden ${isPassed
-                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                            : isFinal
-                                ? 'bg-gradient-to-r from-rose-500 to-rose-400'
-                                : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                        : isFinal
+                            ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                            : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
                         }`}
                     style={{ width: `${isFinal && !isPassed ? 100 : Math.max(progress, 5)}%` }}
                 >
@@ -142,10 +142,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
                         <div key={i} className="flex items-center flex-1 gap-1">
                             <div
                                 className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${current
-                                        ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
-                                        : done
-                                            ? 'bg-emerald-400/70'
-                                            : 'bg-white/[0.08]'
+                                    ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
+                                    : done
+                                        ? 'bg-emerald-400/70'
+                                        : 'bg-white/[0.08]'
                                     }`}
                             />
                             {i < maxIterations - 1 && (
@@ -239,7 +239,7 @@ function InfoRow({ label, value, mono, truncate, highlight }) {
 
 // ─── Fixes Table ──────────────────────────────────────────────────────────────
 
-function FixesTable({ fixes }) {
+function FixesTable({ fixes, onFixClick }) {
     if (!fixes || fixes.length === 0) {
         return (
             <div className="glass-card p-6 text-center animate-fadeInUp">
@@ -258,29 +258,46 @@ function FixesTable({ fixes }) {
                 </span>
             </div>
             <div className="overflow-x-auto">
-                <table className="w-full text-sm" role="table" aria-label="Applied fixes">
+                <table className="w-full text-sm table-fixed" role="table" aria-label="Applied fixes">
                     <thead>
                         <tr className="border-b border-white/[0.06] text-slate-500 text-xs uppercase tracking-wider">
-                            <th className="px-5 py-3 text-left" scope="col">File</th>
-                            <th className="px-5 py-3 text-left" scope="col">Bug Type</th>
-                            <th className="px-5 py-3 text-left" scope="col">Line</th>
-                            <th className="px-5 py-3 text-left" scope="col">Commit Message</th>
-                            <th className="px-5 py-3 text-left" scope="col">Status</th>
+                            <th className="px-5 py-3 text-left w-[28%]" scope="col">File</th>
+                            <th className="px-5 py-3 text-left w-[14%]" scope="col">Bug Type</th>
+                            <th className="px-5 py-3 text-left w-[8%]" scope="col">Line</th>
+                            <th className="px-5 py-3 text-left w-[35%]" scope="col">Commit Message</th>
+                            <th className="px-5 py-3 text-left w-[9%]" scope="col">Status</th>
+                            <th className="px-5 py-3 text-left w-[6%]" scope="col"></th>
                         </tr>
                     </thead>
                     <tbody>
                         {fixes.map((fix, i) => (
-                            <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
+                            <tr
+                                key={i}
+                                className="border-b border-white/[0.03] hover:bg-white/[0.05] transition-colors cursor-pointer group"
+                                onClick={() => onFixClick && onFixClick(fix)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => e.key === 'Enter' && onFixClick && onFixClick(fix)}
+                                aria-label={`View details for fix in ${fix.file}`}
+                            >
                                 <td className="px-5 py-3 font-mono text-slate-300 text-xs">
-                                    <span className="bg-white/[0.05] px-2 py-1 rounded">{fix.file}</span>
+                                    <span className="bg-white/[0.05] px-2 py-1 rounded truncate block">{fix.file}</span>
                                 </td>
                                 <td className="px-5 py-3">
                                     <span className={`text-xs px-2.5 py-1 rounded-full border font-bold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/15 text-slate-300 border-slate-500/30'}`}>
                                         {fix.bug_type}
                                     </span>
                                 </td>
-                                <td className="px-5 py-3 text-slate-300 font-mono text-xs">{fix.line}</td>
-                                <td className="px-5 py-3 text-slate-400 text-xs max-w-xs truncate" title={fix.commit_message}>
+                                <td className="px-5 py-3 text-slate-300 font-mono text-xs">
+                                    {fix.line > 0 ? (
+                                        <span className="bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/20">
+                                            L{fix.line}
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-600">—</span>
+                                    )}
+                                </td>
+                                <td className="px-5 py-3 text-slate-400 text-xs truncate" title={fix.commit_message}>
                                     {fix.commit_message}
                                 </td>
                                 <td className="px-5 py-3">
@@ -294,10 +311,153 @@ function FixesTable({ fixes }) {
                                         </span>
                                     )}
                                 </td>
+                                <td className="px-5 py-3 text-right">
+                                    <Eye size={14} className="text-slate-600 group-hover:text-indigo-400 transition-colors inline-block" />
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+}
+
+// ─── Fix Detail Modal ─────────────────────────────────────────────────────────
+
+function FixDetailModal({ fix, onClose }) {
+    if (!fix) return null;
+
+    // Parse explanation for diff-like rendering
+    const renderExplanation = (text) => {
+        if (!text) return <p className="text-slate-500 text-sm italic">No detailed explanation available.</p>;
+
+        const lines = text.split('\n');
+        return (
+            <div className="font-mono text-xs leading-6 space-y-0">
+                {lines.map((line, i) => {
+                    let bgClass = 'bg-transparent';
+                    let textClass = 'text-slate-400';
+                    let prefix = ' ';
+
+                    const trimmed = line.trimStart();
+                    if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+                        bgClass = 'bg-emerald-500/10';
+                        textClass = 'text-emerald-300';
+                        prefix = '+';
+                    } else if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+                        bgClass = 'bg-rose-500/10';
+                        textClass = 'text-rose-300';
+                        prefix = '-';
+                    } else if (trimmed.startsWith('@@')) {
+                        bgClass = 'bg-indigo-500/10';
+                        textClass = 'text-indigo-300';
+                    }
+
+                    return (
+                        <div key={i} className={`px-4 py-0.5 ${bgClass} flex gap-3`}>
+                            <span className="text-slate-600 select-none w-6 text-right shrink-0">{i + 1}</span>
+                            <span className={textClass} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Fix details"
+        >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+            {/* Modal */}
+            <div
+                className="relative glass-card w-full max-w-3xl max-h-[85vh] flex flex-col animate-fadeInUp"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                    background: 'rgba(12, 14, 26, 0.95)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                    boxShadow: '0 0 60px rgba(99, 102, 241, 0.1), 0 25px 50px rgba(0,0,0,0.5)',
+                }}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
+                            <FileCode2 size={16} className="text-indigo-400" />
+                        </div>
+                        <div>
+                            <h3 className="text-white font-bold text-base">Commit Details</h3>
+                            <p className="text-xs text-slate-500">Iteration {fix.iteration || '—'}</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="w-8 h-8 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center transition-colors"
+                        aria-label="Close modal"
+                    >
+                        <X size={16} className="text-slate-400" />
+                    </button>
+                </div>
+
+                {/* Body — scrollable */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                    {/* Meta grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white/[0.03] rounded-xl p-3">
+                            <p className="text-[11px] text-slate-500 mb-1">File</p>
+                            <p className="text-sm font-mono text-white truncate" title={fix.file}>{fix.file}</p>
+                        </div>
+                        <div className="bg-white/[0.03] rounded-xl p-3">
+                            <p className="text-[11px] text-slate-500 mb-1">Bug Type</p>
+                            <span className={`text-xs px-2.5 py-1 rounded-full border font-bold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/15 text-slate-300 border-slate-500/30'}`}>
+                                {fix.bug_type}
+                            </span>
+                        </div>
+                        <div className="bg-white/[0.03] rounded-xl p-3">
+                            <p className="text-[11px] text-slate-500 mb-1">Line Number</p>
+                            <p className="text-sm font-mono text-white flex items-center gap-1.5">
+                                <Hash size={12} className="text-indigo-400" />
+                                {fix.line > 0 ? fix.line : '—'}
+                            </p>
+                        </div>
+                        <div className="bg-white/[0.03] rounded-xl p-3">
+                            <p className="text-[11px] text-slate-500 mb-1">Status</p>
+                            {fix.status === 'failed' ? (
+                                <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                                    <XCircle size={13} /> Failed
+                                </span>
+                            ) : (
+                                <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                                    <CheckCircle2 size={13} /> Fixed
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Commit message */}
+                    <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.05]">
+                        <p className="text-[11px] text-slate-500 mb-2 uppercase tracking-wider">Commit Message</p>
+                        <p className="text-sm text-white font-medium leading-relaxed">{fix.commit_message || '—'}</p>
+                    </div>
+
+                    {/* Explanation / Diff */}
+                    <div className="rounded-xl overflow-hidden border border-white/[0.06]">
+                        <div className="px-4 py-2.5 bg-white/[0.04] border-b border-white/[0.06] flex items-center gap-2">
+                            <Code2 size={14} className="text-indigo-400" />
+                            <span className="text-sm font-bold text-white">Changes & Explanation</span>
+                        </div>
+                        <div className="bg-[#0c0e18] overflow-x-auto max-h-[40vh] overflow-y-auto">
+                            {renderExplanation(fix.explanation)}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -431,7 +591,7 @@ function AgentTerminal({ logs, isRunning }) {
                 role="log"
                 aria-live="polite"
                 aria-label="Agent output log"
-                style={{ minHeight: '360px' }}
+                style={{ maxHeight: '500px' }}
             >
                 {logs.length === 0 ? (
                     <div className="text-slate-600 flex items-center gap-2">
@@ -465,8 +625,9 @@ function AgentTerminal({ logs, isRunning }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function HealingAgentPage() {
-    const [form, setForm] = useState({ repo_url: '', team_name: '', leader_name: '', retry_limit: 5 });
+    const [form, setForm] = useState({ repo_url: '', team_name: '', leader_name: '', retry_limit: 5, pat_token: '' });
     const [loading, setLoading] = useState(false);
+    const [selectedFix, setSelectedFix] = useState(null);
     const [error, setError] = useState('');
     const [job, setJob] = useState(null);
     const [result, setResult] = useState(null);
@@ -621,6 +782,24 @@ export default function HealingAgentPage() {
                                     disabled={loading}
                                 />
                             </div>
+                            <div className="md:col-span-2">
+                                <label htmlFor="pat-token-input" className="block text-sm font-medium text-slate-300 mb-1.5 flex items-center gap-2">
+                                    GitHub Personal Access Token (PAT)
+                                    <span className="text-xs text-slate-500 font-normal bg-white/[0.05] px-2 py-0.5 rounded-full">Optional — for direct push</span>
+                                </label>
+                                <input
+                                    type="password"
+                                    id="pat-token-input"
+                                    placeholder="ghp_..."
+                                    value={form.pat_token}
+                                    onChange={(e) => setForm(f => ({ ...f, pat_token: e.target.value }))}
+                                    className="input-dark w-full px-4 py-3"
+                                    disabled={loading}
+                                />
+                                <p className="text-xs text-slate-500 mt-1.5">
+                                    Provide a PAT with <code>repo</code> scope to allow the agent to squash fixes and push directly to your repository.
+                                </p>
+                            </div>
                         </div>
 
                         {/* Branch preview */}
@@ -704,12 +883,14 @@ export default function HealingAgentPage() {
                             <div className="flex flex-col gap-5">
                                 <RunSummaryCard job={job} result={result} />
                                 <ScoreBoard result={result} />
-                                <FixesTable fixes={result?.fixes} />
                             </div>
 
                             {/* Right column — Terminal */}
                             <AgentTerminal logs={logs} isRunning={loading} />
                         </div>
+
+                        {/* Full-width Applied Fixes table */}
+                        <FixesTable fixes={result?.fixes} onFixClick={setSelectedFix} />
 
                         {/* Error message */}
                         {result?.error && (
@@ -718,6 +899,8 @@ export default function HealingAgentPage() {
                                 <span><strong>Error:</strong> {result.error}</span>
                             </div>
                         )}
+                        {/* Fix Detail Modal */}
+                        <FixDetailModal fix={selectedFix} onClose={() => setSelectedFix(null)} />
                     </div>
                 )}
 
