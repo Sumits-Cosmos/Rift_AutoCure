@@ -13,10 +13,9 @@ import re
 import json
 import logging
 import google.generativeai as genai
-from dotenv import load_dotenv
 from .shared_state import SharedState
+from .llm_pool import GeminiKeyPool
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT = """
@@ -77,13 +76,11 @@ class FailureClassifierAgent:
     """Classifies test failures using Gemini LLM with improved regex fallback."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
+        self.pool = GeminiKeyPool()
+        if self.pool.available:
+            logger.info(f"[FailureClassifierAgent] Using GeminiKeyPool with {len(self.pool.keys)} key(s)")
         else:
-            self.model = None
-            logger.warning("[FailureClassifierAgent] No Gemini API key - using regex fallback.")
+            logger.warning("[FailureClassifierAgent] No API keys - using regex fallback.")
 
     def run(self, state: SharedState) -> SharedState:
         if state.test_exit_code == 0:
@@ -98,7 +95,7 @@ class FailureClassifierAgent:
         logger.info(f"[FailureClassifierAgent] Classifying failures from output ({len(combined)} chars)...")
 
         failures = []
-        if self.model:
+        if self.pool.available:
             failures = self._classify_with_llm(state)
 
         if not failures:
@@ -141,44 +138,29 @@ class FailureClassifierAgent:
             framework=state.test_framework,
             iteration_context=iter_ctx,
         )
+
+        import time
+
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-            parsed = json.loads(text)
+            raw_text = self.pool.call_llm(prompt)
+            raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
+            raw_text = re.sub(r"\n?```$", "", raw_text)
+            parsed = json.loads(raw_text)
             if isinstance(parsed, list) and len(parsed) > 0:
                 return parsed
             logger.warning("[FailureClassifierAgent] LLM returned empty list, using regex fallback.")
         except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   The API key has hit its request quota."
-                    "\n   Classification will use regex fallback for this iteration."
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Classification falling back to regex."
-                    "\n" + "=" * 60 + "\033[0m"
-                )
-            else:
-                logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
+            logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
         return []
 
     def _classify_with_regex(self, state: SharedState):
-        """Enhanced regex-based fallback classifier."""
+        """Enhanced regex-based fallback classifier with robust Vitest support."""
         stdout = state.test_stdout or ""
         stderr = state.test_stderr or ""
         combined = f"{stdout}\n{stderr}"
         failures = []
 
-        # ── STRUCTURAL errors (highest priority) ────────────────────────────
+        # ── STRUCTURAL errors (highest priority) ────────────────────────
 
         structural_patterns = [
             (r"Cannot use import statement outside a module", "STRUCTURAL",
@@ -195,12 +177,13 @@ class FailureClassifierAgent:
              "TypeScript not configured → add ts-node or tsx transform"),
             (r"ERR_REQUIRE_ESM|Must use import", "STRUCTURAL",
              "ESM module loaded with require() → use dynamic import or configure transform"),
+            (r"Failed to parse source for import analysis because the content contains invalid JS syntax", "STRUCTURAL",
+             "File contains invalid JS syntax (may need .jsx extension or syntax fix)"),
         ]
 
         for pattern, bug_type, fix_hint in structural_patterns:
             m = re.search(pattern, combined, re.IGNORECASE)
             if m:
-                # Try to extract the file from surrounding context
                 file_name = self._extract_file_near(combined, m.start())
                 failures.append({
                     "file": file_name,
@@ -210,9 +193,85 @@ class FailureClassifierAgent:
                     "raw_error": m.group(0)[:200]
                 })
 
-        # ── Node / Jest / Vitest patterns ───────────────────────────────────
+        # ── Vitest/Jest FAIL lines with detailed error extraction ─────────
 
-        # "Cannot find module" with file extraction
+        # Parse Vitest FAIL blocks from stderr:  "FAIL  path > suite > test"
+        vitest_fail_pat = re.compile(
+            r'FAIL\s+([\w./\\-]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))\s*>\s*(.+?)\n'
+            r'((?:.*?\n)*?)(?=\n\s*FAIL|\n\u2500|\Z)',
+            re.MULTILINE
+        )
+        for m in vitest_fail_pat.finditer(combined):
+            file_name = m.group(1).strip().replace("\\", "/")
+            error_block = m.group(3).strip()
+            bug_type, line_num, description = self._parse_error_block(error_block, file_name)
+            # Don't duplicate if already covered by structural
+            if not any(f["file"] == file_name and f["bug_type"] == bug_type for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": bug_type,
+                    "line": line_num,
+                    "description": description,
+                    "raw_error": error_block[:200]
+                })
+
+        # ── "ReferenceError: X is not defined" with stack trace ───────────
+        ref_err_pat = re.compile(
+            r'ReferenceError:\s+(\w+)\s+is not defined\n'
+            r'.*?❯\s+([\w./\\-]+\.(?:js|ts|jsx|tsx)):(\d+):\d+',
+            re.DOTALL
+        )
+        for m in ref_err_pat.finditer(combined):
+            var_name = m.group(1)
+            file_name = m.group(2).strip().replace("\\", "/")
+            line_num = int(m.group(3))
+            if not any(f["file"] == file_name for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "IMPORT",
+                    "line": line_num,
+                    "description": f"IMPORT error in {file_name} line {line_num} → Fix: '{var_name}' is not defined, check import statement",
+                    "raw_error": m.group(0)[:200]
+                })
+
+        # ── "TypeError: X is not a function" with stack trace ─────────────
+        type_err_pat = re.compile(
+            r'TypeError:\s+(.+?)\s+is not a function\n'
+            r'.*?❯\s+([\w./\\-]+\.(?:js|ts|jsx|tsx)):(\d+):\d+',
+            re.DOTALL
+        )
+        for m in type_err_pat.finditer(combined):
+            fn_name = m.group(1).strip()
+            file_name = m.group(2).strip().replace("\\", "/")
+            line_num = int(m.group(3))
+            if not any(f["file"] == file_name for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "IMPORT",
+                    "line": line_num,
+                    "description": f"IMPORT error in {file_name} line {line_num} → Fix: '{fn_name}' is not a function, check import style (default vs named)",
+                    "raw_error": m.group(0)[:200]
+                })
+
+        # ── Vitest assertion failures: "expected X to be Y" with ❯ file:line ─
+        assert_pat = re.compile(
+            r'(?:expected\s+.*?(?:to be|not to be|to equal).*?)\n'
+            r'.*?❯\s+([\w./\\-]+\.(?:js|ts|jsx|tsx)):(\d+):\d+',
+            re.DOTALL
+        )
+        for m in assert_pat.finditer(combined):
+            file_name = m.group(1).strip().replace("\\", "/")
+            line_num = int(m.group(2))
+            if not any(f["file"] == file_name and f["line"] == line_num for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "LOGIC",
+                    "line": line_num,
+                    "description": f"LOGIC error in {file_name} line {line_num} → Fix: assertion failure, check function return value",
+                    "raw_error": m.group(0)[:200]
+                })
+
+        # ── "Cannot find module" with file extraction ──────────────────
         cfm = re.compile(r"Cannot find module '([^']+)'.*?(?:from|Require stack:)\s*['\"]?([^\s'\"]+)", re.DOTALL)
         for m in cfm.finditer(combined):
             missing = m.group(1).strip()
@@ -225,9 +284,13 @@ class FailureClassifierAgent:
                 "raw_error": m.group(0)[:200]
             })
 
-        # Jest/Vitest FAIL line: "FAIL src/foo.test.js" or "❌ src/foo.test.js"
-        fail_file_pat = re.compile(r"(?:FAIL|❌)\s+([\w./\\-]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))", re.MULTILINE)
-        for m in fail_file_pat.finditer(combined):
+        # ── Vitest stdout: lines with ❯ showing failing file ─────────────
+        # Pattern: " ❯ src/tests/foo.test.js  (N tests | M failed)"
+        vitest_stdout_fail = re.compile(
+            r'\u276f\s+([\w./\\-]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))\s+\(.*?failed',
+            re.MULTILINE
+        )
+        for m in vitest_stdout_fail.finditer(stdout):
             file_name = m.group(1).strip().replace("\\", "/")
             if self._is_library_path(file_name):
                 continue
@@ -282,15 +345,15 @@ class FailureClassifierAgent:
             if not any(f["file"] == fpath for f in failures):
                 line_num = int(m.group(2))
                 failures.append({
-                    "file": fpath,
+                    "file": file_name,
                     "bug_type": "LOGIC",
-                    "line": line_num,
-                    "description": f"LOGIC error in {fpath} line {line_num} → Fix: check runtime error at this location",
+                    "line": 0,
+                    "description": f"LOGIC error in {file_name} → Fix: review failing test assertions",
                     "raw_error": m.group(0)[:200]
                 })
                 break  # Only take first non-library stack frame
 
-        # npm ERR!
+        # ── npm ERR! ────────────────────────────────────────────────
         npm_err = re.compile(r"npm ERR!\s+(.+)", re.MULTILINE)
         for m in npm_err.finditer(combined):
             err = m.group(1).strip()
@@ -304,7 +367,7 @@ class FailureClassifierAgent:
                 })
                 break
 
-        # ── Python patterns ─────────────────────────────────────────────────
+        # ── Python patterns ─────────────────────────────────────────
 
         python_patterns = [
             (r"SyntaxError[:\s]+(.+)", "SYNTAX"),
@@ -318,13 +381,11 @@ class FailureClassifierAgent:
             (r"AttributeError[:\s]+(.+)", "LOGIC"),
             (r"AssertionError[:\s]*(.*)", "LOGIC"),
         ]
-        # Python file:line extraction
         py_file_line = re.compile(r'File "([^"]+)", line (\d+)')
 
         for pattern, bug_type in python_patterns:
             for m in re.finditer(pattern, combined, re.MULTILINE):
                 err = (m.group(1) or "").strip()
-                # Find the nearest File "..." line BEFORE this error
                 file_name = "unknown"
                 line_num = 0
                 search_region = combined[:m.start()]
@@ -347,10 +408,9 @@ class FailureClassifierAgent:
                 if len(failures) >= 10:
                     break
 
-        # ── Generic fallback ────────────────────────────────────────────────
+        # ── Generic fallback ────────────────────────────────────────
 
         if not failures:
-            # Try to at least find a file path in the output
             any_file = re.search(r'([\w./\\-]+\.(?:py|js|ts|jsx|tsx|go|rb|java))', combined)
             file_name = any_file.group(1) if any_file else "unknown"
             snippet = combined.strip()[:300]
@@ -363,7 +423,7 @@ class FailureClassifierAgent:
             })
             logger.info(f"[FailureClassifierAgent] Generic fallback used. Output snippet:\n{snippet}")
 
-        # Deduplicate by (file, bug_type)
+        # Deduplicate by (file, bug_type, line)
         seen = set()
         unique = []
         for f in failures:
@@ -374,6 +434,31 @@ class FailureClassifierAgent:
         return unique[:10]
 
     # ── Helper methods ──────────────────────────────────────────────────────
+
+    def _parse_error_block(self, error_block: str, file_name: str):
+        """Parse a Vitest FAIL error block to extract bug_type, line, description."""
+        line_num = 0
+        # Extract line from ❯ file:line:col
+        line_m = re.search(r'❯\s+[\w./\\-]+\.(?:js|ts|jsx|tsx):(\d+):\d+', error_block)
+        if line_m:
+            line_num = int(line_m.group(1))
+
+        if "is not defined" in error_block:
+            m = re.search(r'(\w+)\s+is not defined', error_block)
+            name = m.group(1) if m else "unknown"
+            return "IMPORT", line_num, f"IMPORT error in {file_name} line {line_num} → Fix: '{name}' is not defined, check import"
+        elif "is not a function" in error_block:
+            m = re.search(r'(.+?)\s+is not a function', error_block)
+            name = m.group(1).strip() if m else "unknown"
+            return "IMPORT", line_num, f"IMPORT error in {file_name} line {line_num} → Fix: '{name}' is not a function, check import style"
+        elif "expected" in error_block.lower() and ("to be" in error_block.lower() or "to equal" in error_block.lower()):
+            return "LOGIC", line_num, f"LOGIC error in {file_name} line {line_num} → Fix: assertion failure, check function logic/return value"
+        elif "SyntaxError" in error_block:
+            return "SYNTAX", line_num, f"SYNTAX error in {file_name} line {line_num} → Fix: check syntax"
+        elif "TypeError" in error_block:
+            return "TYPE_ERROR", line_num, f"TYPE_ERROR in {file_name} line {line_num} → Fix: check types"
+        else:
+            return "LOGIC", line_num, f"LOGIC error in {file_name} line {line_num} → Fix: review error details"
 
     def _extract_file_near(self, text: str, pos: int) -> str:
         """Try to find a file path near position `pos` in text."""

@@ -11,10 +11,9 @@ import json
 import logging
 import subprocess
 import google.generativeai as genai
-from dotenv import load_dotenv
 from .shared_state import SharedState, FixRecord
+from .llm_pool import GeminiKeyPool
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 FIX_PROMPT = """
@@ -31,7 +30,7 @@ Current File Content:
 ```
 {file_content}
 ```
-
+{related_files_section}
 Test Output (relevant snippet):
 ```
 {test_output_snippet}
@@ -47,8 +46,10 @@ Instructions:
 3. Preserve all indentation, formatting, and coding style.
 4. Do NOT add comments unless they were already there.
 5. Do NOT restructure the file or change unrelated code.
-6. If the file is a test file, fix the test — do NOT rewrite it from scratch.
-7. Return ONLY the JSON object — no markdown, no prose.
+6. CRITICAL: If a SOURCE file (not a test file) has a function that is missing a `return` statement, ADD the `return` statement to the source file. Do NOT modify the test assertions to expect `undefined`.
+7. If the file IS a test file and the error is about imports (function not found, not a function, wrong module path), fix the import statement — do NOT rewrite the test logic.
+8. For IMPORT errors: Look at the Related Files section above to see how the imported module actually exports its functions. Use the EXACT export style (default vs named) shown in the related file.
+9. Return ONLY the JSON object — no markdown, no prose.
 
 Example response:
 {{
@@ -63,15 +64,11 @@ class FixGeneratorAgent:
     """Generates and applies code fixes using Gemini LLM with structural handlers."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            self.model = genai.GenerativeModel(model_name)
-            logger.info(f"[FixGeneratorAgent] Using Gemini model: {model_name}")
+        self.pool = GeminiKeyPool()
+        if self.pool.available:
+            logger.info(f"[FixGeneratorAgent] Using GeminiKeyPool with {len(self.pool.keys)} key(s)")
         else:
-            self.model = None
-            logger.warning("[FixGeneratorAgent] No Gemini API key - fixes will be skipped.")
+            logger.warning("[FixGeneratorAgent] No Gemini API keys - fixes will be skipped.")
 
     def run(self, state: SharedState) -> SharedState:
         if not state.classified_failures:
@@ -102,8 +99,8 @@ class FixGeneratorAgent:
                     fixes_applied.append(fix_record)
                     continue
 
-            if not self.model:
-                logger.warning("[FixGeneratorAgent] Skipping LLM fix - no model available.")
+            if not self.pool.available:
+                logger.warning("[FixGeneratorAgent] Skipping LLM fix - no API keys available.")
                 continue
 
             fix_record = self._fix_failure(failure, repo_path, state)
@@ -445,6 +442,16 @@ class FixGeneratorAgent:
                 prior_ctx += f"\n  - Iteration {pf.iteration}: {pf.commit_message}"
             prior_ctx += "\nMake sure your fix does not revert or conflict with these prior changes."
 
+        # ── Build related files section for IMPORT errors ──────────────
+        related_section = ""
+        bug_type = failure.get("bug_type", "")
+        if bug_type in ("IMPORT", "TYPE_ERROR", "LOGIC"):
+            related_files = self._find_related_files(content, file_abs, repo_path)
+            if related_files:
+                related_section = "\n\nRelated Files (imported modules — check their exports):" 
+                for rf_path, rf_content in related_files.items():
+                    related_section += f"\n\n--- {rf_path} ---\n```\n{rf_content[:3000]}\n```"
+
         # Build test output snippet
         test_snippet = ""
         stdout = state.test_stdout or ""
@@ -465,34 +472,19 @@ class FixGeneratorAgent:
             description=failure.get("description", ""),
             raw_error=failure.get("raw_error", ""),
             file_content=content[:8000],
+            related_files_section=related_section,
             test_output_snippet=test_snippet[:2000],
             prior_fix_context=prior_ctx,
         )
 
+        # ─── LLM CALL VIA KEY POOL ────────────────────────────────────────────
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-            fix_data = json.loads(text)
+            raw_text = self.pool.call_llm(prompt)
+            raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
+            raw_text = re.sub(r"\n?```$", "", raw_text)
+            fix_data = json.loads(raw_text)
         except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n" + "=" * 60 + "\033[0m"
-                )
-            else:
-                logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
+            logger.error(f"[FixGeneratorAgent] LLM call failed for {file_rel}: {e}")
             return None
 
         fixed_content = fix_data.get("fixed_content", "")
@@ -570,3 +562,42 @@ class FixGeneratorAgent:
                 if "node_modules" not in candidate and ".git" not in candidate:
                     return candidate
         return None
+
+    def _find_related_files(self, content: str, file_abs: str, repo_path: str) -> dict:
+        """
+        For IMPORT errors: find the files that the current file imports from
+        and return their content so the LLM can see the actual exports.
+        """
+        related = {}
+        # Match ESM imports: import { foo } from './bar'  or  import foo from '../utils/bar.js'
+        import_re = re.compile(r"(?:import|from)\s+.*?['\"]([./][^'\"]+)['\"]")
+        # Match CJS requires: require('./bar')
+        require_re = re.compile(r"require\(['\"]([./][^'\"]+)['\"]\)")
+
+        dir_of_file = os.path.dirname(file_abs)
+
+        for pattern in [import_re, require_re]:
+            for m in pattern.finditer(content):
+                rel_import = m.group(1)
+                # Resolve the import path
+                candidates = [rel_import]
+                if not os.path.splitext(rel_import)[1]:
+                    # No extension — try common ones
+                    candidates = [
+                        rel_import + ext
+                        for ext in [".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"]
+                    ]
+                    candidates.append(os.path.join(rel_import, "index.js"))
+
+                for candidate in candidates:
+                    abs_path = os.path.normpath(os.path.join(dir_of_file, candidate))
+                    if os.path.isfile(abs_path) and "node_modules" not in abs_path:
+                        try:
+                            with open(abs_path, "r", encoding="utf-8") as f:
+                                rel_path = os.path.relpath(abs_path, repo_path).replace("\\", "/")
+                                related[rel_path] = f.read()
+                        except Exception:
+                            pass
+                        break  # found it, no need to try other extensions
+
+        return related

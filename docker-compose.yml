@@ -9,7 +9,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_MIN_SLEEP=${LLM_MIN_SLEEP:-4}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
     volumes:
       # Mount Docker socket so the service can launch test containers
       - /var/run/docker.sock:/var/run/docker.sock
@@ -21,13 +24,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_PYTHON_API_URL=/api
     container_name: cognitest-frontend
     ports:
       - "5173:80"
     depends_on:
       - python-service
-    environment:
-      - VITE_PYTHON_API_URL=http://python-service:8000
     restart: unless-stopped
     networks:
       - cognitest-net

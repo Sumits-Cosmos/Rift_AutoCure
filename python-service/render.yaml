@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: cognitest-api
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt && apt-get update && apt-get install -y git && git config --global user.email "ai@agent.local" && git config --global user.name "AI-Agent"
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LLM_MIN_SLEEP
+        value: 4
+      - key: USE_DOCKER
+        value: "false"
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.0"
