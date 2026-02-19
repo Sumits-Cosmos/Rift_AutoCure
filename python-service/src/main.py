@@ -1,14 +1,21 @@
-from fastapi import FastAPI
+import logging
+from concurrent.futures import ThreadPoolExecutor
+
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.swagger_parser import parse_swagger
 from src.gemini_generator import generate_testcases_from_gemini
 from src.postman_builder import build_postman_collection
 from src.report_analyzer import analyze_report
+from src.agents.orchestrator import OrchestratorAgent
 
-app = FastAPI(title="FastAPI Worker - Swagger → Gemini → Newman")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Cognitest AI CI/CD Healing Agent API")
 
 # Add CORS middleware
 app.add_middleware(
@@ -18,6 +25,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── In-memory job store ───────────────────────────────────────────────────────
+_jobs: Dict[str, dict] = {}
+_executor = ThreadPoolExecutor(max_workers=4)
+
+# ─── Request/Response models ──────────────────────────────────────────────────
 
 class SwaggerReq(BaseModel):
     swaggerUrl: str
@@ -31,6 +44,18 @@ class GenerateReq(BaseModel):
 class ReportReq(BaseModel):
     report: Dict[str, Any]
 
+class RunAgentRequest(BaseModel):
+    repo_url: str
+    team_name: str
+    leader_name: str
+    retry_limit: Optional[int] = 5
+
+class RunAgentResponse(BaseModel):
+    job_id: str
+    message: str
+    status: str
+
+# ─── Existing endpoints ───────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -47,15 +72,13 @@ async def parse_swagger_api(req: SwaggerReq):
 async def parse_swagger_spec(req: SwaggerSpecReq):
     """Parse a Swagger spec directly (for file uploads)"""
     spec = req.spec
-    
     base_url = ""
     if "servers" in spec and spec["servers"]:
         base_url = spec["servers"][0]["url"]
     elif "host" in spec:
-        # Swagger 2.0 format
         scheme = spec.get("schemes", ["https"])[0]
         base_url = f"{scheme}://{spec['host']}{spec.get('basePath', '')}"
-    
+
     endpoints = []
     for path, methods in spec.get("paths", {}).items():
         for method, details in methods.items():
@@ -65,24 +88,94 @@ async def parse_swagger_spec(req: SwaggerSpecReq):
                     "path": path,
                     "summary": details.get("summary", "")
                 })
-    
-    return {
-        "baseUrl": base_url,
-        "endpoints": endpoints
-    }
+    return {"baseUrl": base_url, "endpoints": endpoints}
 
 
 @app.post("/generate-tests")
 async def generate_tests(req: GenerateReq):
     testcases = await generate_testcases_from_gemini(req.parsed)
     collection = build_postman_collection(req.parsed, testcases)
-
-    return {
-        "testcases": testcases,
-        "collection": collection
-    }
+    return {"testcases": testcases, "collection": collection}
 
 
 @app.post("/analyze-report")
 def analyze(req: ReportReq):
     return analyze_report(req.report)
+
+
+# ─── CI/CD Healing Agent endpoints ───────────────────────────────────────────
+
+def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: str, retry_limit: int):
+    """Background task that runs the full healing pipeline."""
+    _jobs[job_id]["status"] = "RUNNING"
+    try:
+        agent = OrchestratorAgent(retry_limit=retry_limit)
+        result = agent.run(repo_url, team_name, leader_name)
+        _jobs[job_id]["result"] = result
+        _jobs[job_id]["status"] = result.get("status", "COMPLETE")
+    except Exception as e:
+        logger.exception(f"[API] Job {job_id} crashed: {e}")
+        _jobs[job_id]["status"] = "ERROR"
+        _jobs[job_id]["result"] = {"error": str(e), "status": "FAILED"}
+
+
+@app.post("/run-agent", response_model=RunAgentResponse)
+async def run_agent(req: RunAgentRequest, background_tasks: BackgroundTasks):
+    """
+    Trigger the autonomous CI/CD healing pipeline.
+    Returns a job_id immediately. Poll /agent-status/{job_id} for results.
+    """
+    import uuid, time
+    job_id = str(uuid.uuid4())
+
+    _jobs[job_id] = {
+        "status": "QUEUED",
+        "result": None,
+        "repo_url": req.repo_url,
+        "team_name": req.team_name,
+        "leader_name": req.leader_name,
+        "created_at": time.time()
+    }
+
+    # Run in background thread (orchestrator is CPU/IO bound)
+    background_tasks.add_task(
+        _run_orchestrator,
+        job_id, req.repo_url, req.team_name, req.leader_name, req.retry_limit
+    )
+
+    logger.info(f"[API] Job {job_id} queued for repo: {req.repo_url}")
+    return RunAgentResponse(
+        job_id=job_id,
+        message="Agent job queued successfully. Poll /agent-status/{job_id} for progress.",
+        status="QUEUED"
+    )
+
+
+@app.get("/agent-status/{job_id}")
+def agent_status(job_id: str):
+    """Poll the status and results of a healing agent run."""
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+    job = _jobs[job_id]
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "repo_url": job.get("repo_url"),
+        "team_name": job.get("team_name"),
+        "leader_name": job.get("leader_name"),
+    }
+
+
+@app.get("/agent-jobs")
+def list_jobs():
+    """List all agent jobs and their statuses."""
+    return [
+        {
+            "job_id": jid,
+            "status": j["status"],
+            "repo_url": j.get("repo_url"),
+            "team_name": j.get("team_name"),
+        }
+        for jid, j in _jobs.items()
+    ]

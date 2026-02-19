@@ -3,6 +3,7 @@ import HomePage from './pages/HomePage/HomePage';
 import TestingPage from './pages/TestingPage/TestingPage';
 import FeaturesPage from './pages/FeaturesPage/FeaturesPage';
 import DocsPage from './pages/DocsPage/DocsPage';
+import HealingAgentPage from './pages/HealingAgentPage/HealingAgentPage';
 import { useNavigation } from './hooks/useNavigation';
 
 /**
@@ -19,6 +20,8 @@ export default function App() {
         return <FeaturesPage />;
       case 'docs':
         return <DocsPage />;
+      case 'healing':
+        return <HealingAgentPage />;
       default:
         return <HomePage setPage={navigateTo} />;
     }
@@ -33,3 +36,4 @@ export default function App() {
     </div>
   );
 }
+

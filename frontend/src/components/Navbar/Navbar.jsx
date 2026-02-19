@@ -1,3 +1,5 @@
+import { Activity } from 'lucide-react';
+
 /**
  * Navigation Bar Component
  */
@@ -12,6 +14,13 @@ const Navbar = ({ setPage }) => (
       </div>
     </div>
     <div className="flex gap-4">
+      <button
+        id="nav-healing-agent"
+        onClick={() => setPage('healing')}
+        className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm font-medium flex items-center gap-1.5"
+      >
+        <Activity size={14} /> Healing Agent
+      </button>
       <button
         onClick={() => setPage('features')}
         className="px-6 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium"
@@ -29,3 +38,4 @@ const Navbar = ({ setPage }) => (
 );
 
 export default Navbar;
+
