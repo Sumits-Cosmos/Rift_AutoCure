@@ -72,6 +72,7 @@ class RunAgentRequest(BaseModel):
     team_name: str
     leader_name: str
     retry_limit: Optional[int] = 5
+    pat_token: Optional[str] = None
 
 class RunAgentResponse(BaseModel):
     job_id: str
@@ -135,7 +136,7 @@ def _add_log(job_id: str, message: str, level: str = "info"):
     _jobs[job_id].setdefault("logs", []).append(entry)
 
 
-def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: str, retry_limit: int):
+def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: str, retry_limit: int, pat_token: Optional[str] = None):
     """Background task that runs the full healing pipeline."""
     _jobs[job_id]["status"] = "RUNNING"
     _jobs[job_id]["logs"] = []
@@ -147,7 +148,7 @@ def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: s
 
     try:
         agent = OrchestratorAgent(retry_limit=retry_limit, log_callback=log_callback)
-        result = agent.run(repo_url, team_name, leader_name)
+        result = agent.run(repo_url, team_name, leader_name, pat_token)
         _jobs[job_id]["result"] = result
         _jobs[job_id]["status"] = result.get("status", "COMPLETE")
         _add_log(job_id, f"Pipeline finished with status: {result.get('status', 'COMPLETE')}")
@@ -183,7 +184,7 @@ async def run_agent(req: RunAgentRequest, background_tasks: BackgroundTasks):
     # Run in background thread (orchestrator is CPU/IO bound)
     background_tasks.add_task(
         _run_orchestrator,
-        job_id, req.repo_url, req.team_name, req.leader_name, req.retry_limit
+        job_id, req.repo_url, req.team_name, req.leader_name, req.retry_limit, req.pat_token
     )
 
     logger.info(f"[API] Job {job_id} queued for repo: {req.repo_url}")

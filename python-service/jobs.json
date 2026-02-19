@@ -1,0 +1,999 @@
+{
+  "eeee51c8-e82b-4770-9c48-5ac6a12182d5": {
+    "status": "FAILED",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1",
+      "branch": "COSMO_NIBBLERS_UTKARSH_KUAMAR_AI_Fix",
+      "total_failures": 1,
+      "total_fixes": 0,
+      "iterations_used": 3,
+      "status": "FAILED",
+      "time_taken_seconds": 6.27,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [],
+      "all_fixes": [],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "/app/src/utils.py:SYNTAX"
+      ],
+      "error": "Healing loop detected oscillation \u2014 same failures recurring: /app/src/utils.py:SYNTAX. Applied 0 fix(es) before stopping.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kuamar",
+    "created_at": 1771537640.3420491,
+    "logs": [
+      {
+        "ts": 1771537640.3510623,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771537640.353366,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1"
+      },
+      {
+        "ts": 1771537641.997684,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771537641.9976943,
+        "level": "info",
+        "message": "Creating branch: COSMO_NIBBLERS_UTKARSH_KUAMAR_AI_Fix"
+      },
+      {
+        "ts": 1771537642.0033538,
+        "level": "info",
+        "message": "\u2705 Branch 'COSMO_NIBBLERS_UTKARSH_KUAMAR_AI_Fix' created"
+      },
+      {
+        "ts": 1771537642.003357,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771537642.0035994,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771537642.0036025,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771537642.0039651,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771537642.0039678,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771537642.003971,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537642.0040412,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537643.60607,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537643.8646657,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537643.8646684,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537644.2315516,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537644.2316859,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771537644.23169,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537644.2317383,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537645.2197568,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537645.313306,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537645.313308,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537645.4863832,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537645.486467,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771537645.486469,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537645.486507,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537646.3647897,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537646.4517398,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537646.451742,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537646.6157496,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537646.615846,
+        "level": "info",
+        "message": "Monitor: OSCILLATING"
+      },
+      {
+        "ts": 1771537646.6171582,
+        "level": "info",
+        "message": "Pipeline finished with status: FAILED"
+      }
+    ]
+  },
+  "76427086-3fa3-4d51-a477-5d98b28bf4c2": {
+    "status": "FAILED",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1",
+      "branch": "COSMO_NIBBLERS_UTKARSH_KUMAR_AI_Fix",
+      "total_failures": 1,
+      "total_fixes": 0,
+      "iterations_used": 3,
+      "status": "FAILED",
+      "time_taken_seconds": 7.15,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [],
+      "all_fixes": [],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "/app/src/utils.py:SYNTAX"
+      ],
+      "error": "Healing loop detected oscillation \u2014 same failures recurring: /app/src/utils.py:SYNTAX. Applied 0 fix(es) before stopping.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar",
+    "created_at": 1771537915.7088397,
+    "logs": [
+      {
+        "ts": 1771537915.724773,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771537915.7277482,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1"
+      },
+      {
+        "ts": 1771537916.7145867,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771537916.7145941,
+        "level": "info",
+        "message": "Creating branch: COSMO_NIBBLERS_UTKARSH_KUMAR_AI_Fix"
+      },
+      {
+        "ts": 1771537916.7229407,
+        "level": "info",
+        "message": "\u2705 Branch 'COSMO_NIBBLERS_UTKARSH_KUMAR_AI_Fix' created"
+      },
+      {
+        "ts": 1771537916.722952,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771537916.7237046,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771537916.7237105,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771537916.7248733,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771537916.7248821,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771537916.7248945,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537916.7250156,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537918.71902,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537918.918822,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537918.9188378,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537919.0606575,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537919.0607932,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771537919.0607984,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537919.060892,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537920.6772883,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537920.7908962,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537920.7909005,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537920.9570768,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537920.9572687,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771537920.9572713,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537920.957319,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771537922.6208513,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771537922.6967046,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771537922.6967216,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771537922.868748,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771537922.8688786,
+        "level": "info",
+        "message": "Monitor: OSCILLATING"
+      },
+      {
+        "ts": 1771537922.8713417,
+        "level": "info",
+        "message": "Pipeline finished with status: FAILED"
+      }
+    ]
+  },
+  "57712a1d-a2df-43ea-b657-5bbb52274b31": {
+    "status": "FAILED",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1",
+      "branch": "COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix",
+      "total_failures": 1,
+      "total_fixes": 0,
+      "iterations_used": 3,
+      "status": "FAILED",
+      "time_taken_seconds": 7.65,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [],
+      "all_fixes": [],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "/app/src/utils.py:SYNTAX"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "/app/src/utils.py:SYNTAX"
+      ],
+      "error": "Healing loop detected oscillation \u2014 same failures recurring: /app/src/utils.py:SYNTAX. Applied 0 fix(es) before stopping.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar ",
+    "created_at": 1771537997.9405386,
+    "logs": [
+      {
+        "ts": 1771537997.9445808,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771537997.9451299,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1"
+      },
+      {
+        "ts": 1771537998.9635541,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771537998.9635613,
+        "level": "info",
+        "message": "Creating branch: COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix"
+      },
+      {
+        "ts": 1771537998.9703116,
+        "level": "info",
+        "message": "\u2705 Branch 'COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix' created"
+      },
+      {
+        "ts": 1771537998.9703186,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771537998.9707,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771537998.9707048,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771537998.9715273,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771537998.971538,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771537998.9715424,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771537998.9716392,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538001.0202053,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771538001.4116104,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771538001.4116137,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538001.5487373,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771538001.5489392,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771538001.5489478,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538001.5490165,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538003.349349,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771538003.4406002,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771538003.440603,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538003.6216516,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771538003.6218162,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771538003.6218212,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538003.6219,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538005.3082743,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771538005.4324267,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771538005.4324298,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538005.5964458,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 0)"
+      },
+      {
+        "ts": 1771538005.5965333,
+        "level": "info",
+        "message": "Monitor: OSCILLATING"
+      },
+      {
+        "ts": 1771538005.5983875,
+        "level": "info",
+        "message": "Pipeline finished with status: FAILED"
+      }
+    ]
+  },
+  "9a09651e-651b-443e-9a8d-3a7871364c7a": {
+    "status": "PASSED",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1",
+      "branch": "COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix",
+      "total_failures": 0,
+      "total_fixes": 4,
+      "iterations_used": 4,
+      "status": "PASSED",
+      "time_taken_seconds": 69.58,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - add colon",
+          "explanation": "Added a colon after the function parameters in the 'calculate_area' definition to resolve a syntax error.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3 - indent return statement",
+          "explanation": "Indented the 'return False' statement on line 3 to be part of the 'if' block, resolving the IndentationError.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted user_id to a string using str() before calling the .upper() method, as user_id can be an integer.",
+          "status": "Fixed",
+          "iteration": 3
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "LOGIC",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix LOGIC error in src/validator.py line 0 - ensure validate_age returns boolean",
+          "explanation": "Added a return True statement in validate_age for valid ages to ensure a boolean is always returned, resolving the AssertionError.",
+          "status": "Fixed",
+          "iteration": 3
+        }
+      ],
+      "all_fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - add colon",
+          "explanation": "Added a colon after the function parameters in the 'calculate_area' definition to resolve a syntax error.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3 - indent return statement",
+          "explanation": "Indented the 'return False' statement on line 3 to be part of the 'if' block, resolving the IndentationError.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted user_id to a string using str() before calling the .upper() method, as user_id can be an integer.",
+          "status": "Fixed",
+          "iteration": 3
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "LOGIC",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix LOGIC error in src/validator.py line 0 - ensure validate_age returns boolean",
+          "explanation": "Added a return True statement in validate_age for valid ages to ensure a boolean is always returned, resolving the AssertionError.",
+          "status": "Fixed",
+          "iteration": 3
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:INDENTATION"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 1,
+          "failure_count": 2,
+          "fix_count": 2,
+          "failure_signatures": [
+            "src/validator.py:TYPE_ERROR",
+            "src/validator.py:LOGIC"
+          ]
+        },
+        {
+          "iteration": 4,
+          "exit_code": 0,
+          "failure_count": 0,
+          "fix_count": 0,
+          "failure_signatures": []
+        }
+      ],
+      "repeated_failures": [],
+      "error": null,
+      "deployment_url": "Failed: Command '['docker', 'build', '-t', 'cicd-deploy-cosmo_nibblers_utkarsh_kumar__ai_fix', '.']' returned non-zero exit status 1.",
+      "git_push_status": "Success (Squashed & Pushed)"
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar ",
+    "created_at": 1771538167.4512768,
+    "logs": [
+      {
+        "ts": 1771538167.45947,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771538167.460141,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1"
+      },
+      {
+        "ts": 1771538168.456771,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771538168.4567795,
+        "level": "info",
+        "message": "Creating branch: COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix"
+      },
+      {
+        "ts": 1771538168.4647214,
+        "level": "info",
+        "message": "\u2705 Branch 'COSMO_NIBBLERS_UTKARSH_KUMAR__AI_Fix' created"
+      },
+      {
+        "ts": 1771538168.4647267,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771538168.4650702,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771538168.465072,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771538168.465776,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771538168.4657845,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771538168.4657927,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538168.4658878,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538170.4674585,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771538177.080934,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771538177.0809398,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538179.0926034,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 1)"
+      },
+      {
+        "ts": 1771538179.0928123,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771538179.0928183,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538179.0929081,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538180.8939877,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771538186.3689454,
+        "level": "info",
+        "message": "Found 1 failure(s): INDENTATION"
+      },
+      {
+        "ts": 1771538186.3689547,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538188.3050697,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 2)"
+      },
+      {
+        "ts": 1771538188.3051808,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771538188.3051832,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538188.3052156,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538204.3340557,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771538213.8676574,
+        "level": "info",
+        "message": "Found 2 failure(s): TYPE_ERROR, LOGIC"
+      },
+      {
+        "ts": 1771538213.8676648,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771538233.913114,
+        "level": "info",
+        "message": "Applied 2 fix(es) this iteration (cumulative: 4)"
+      },
+      {
+        "ts": 1771538233.9132905,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771538233.9132955,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 4/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771538233.9134047,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771538235.6154811,
+        "level": "info",
+        "message": "\u2705 All tests passed!"
+      },
+      {
+        "ts": 1771538235.6157305,
+        "level": "info",
+        "message": "Pushing fixed code to remote repository..."
+      },
+      {
+        "ts": 1771538235.615764,
+        "level": "info",
+        "message": "Formatting single squash commit..."
+      },
+      {
+        "ts": 1771538235.6274393,
+        "level": "info",
+        "message": "Pushing cleanup commit to remote..."
+      },
+      {
+        "ts": 1771538236.7530837,
+        "level": "info",
+        "message": "Git push: Success (Squashed & Pushed)"
+      },
+      {
+        "ts": 1771538236.7530906,
+        "level": "info",
+        "message": "Attempting deployment..."
+      },
+      {
+        "ts": 1771538237.039191,
+        "level": "warn",
+        "message": "\u26a0 Deployment skipped or failed"
+      },
+      {
+        "ts": 1771538237.043882,
+        "level": "info",
+        "message": "Pipeline finished with status: PASSED"
+      }
+    ]
+  }
+}

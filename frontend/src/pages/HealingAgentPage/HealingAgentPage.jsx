@@ -67,9 +67,9 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isRunning ? 'bg-blue-500/15 border border-blue-500/30' :
-                            isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
-                                isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
-                                    'bg-indigo-500/15 border border-indigo-500/30'
+                        isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
+                            isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
+                                'bg-indigo-500/15 border border-indigo-500/30'
                         }`}>
                         {isRunning ? (
                             <Loader2 size={18} className="text-blue-400 animate-spin" />
@@ -113,10 +113,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             >
                 <div
                     className={`h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden ${isPassed
-                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                            : isFinal
-                                ? 'bg-gradient-to-r from-rose-500 to-rose-400'
-                                : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                        : isFinal
+                            ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                            : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
                         }`}
                     style={{ width: `${isFinal && !isPassed ? 100 : Math.max(progress, 5)}%` }}
                 >
@@ -142,10 +142,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
                         <div key={i} className="flex items-center flex-1 gap-1">
                             <div
                                 className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${current
-                                        ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
-                                        : done
-                                            ? 'bg-emerald-400/70'
-                                            : 'bg-white/[0.08]'
+                                    ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
+                                    : done
+                                        ? 'bg-emerald-400/70'
+                                        : 'bg-white/[0.08]'
                                     }`}
                             />
                             {i < maxIterations - 1 && (
@@ -465,7 +465,7 @@ function AgentTerminal({ logs, isRunning }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function HealingAgentPage() {
-    const [form, setForm] = useState({ repo_url: '', team_name: '', leader_name: '', retry_limit: 5 });
+    const [form, setForm] = useState({ repo_url: '', team_name: '', leader_name: '', retry_limit: 5, pat_token: '' });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [job, setJob] = useState(null);
@@ -620,6 +620,24 @@ export default function HealingAgentPage() {
                                     className="input-dark w-full px-4 py-3"
                                     disabled={loading}
                                 />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label htmlFor="pat-token-input" className="block text-sm font-medium text-slate-300 mb-1.5 flex items-center gap-2">
+                                    GitHub Personal Access Token (PAT)
+                                    <span className="text-xs text-slate-500 font-normal bg-white/[0.05] px-2 py-0.5 rounded-full">Optional — for direct push</span>
+                                </label>
+                                <input
+                                    type="password"
+                                    id="pat-token-input"
+                                    placeholder="ghp_..."
+                                    value={form.pat_token}
+                                    onChange={(e) => setForm(f => ({ ...f, pat_token: e.target.value }))}
+                                    className="input-dark w-full px-4 py-3"
+                                    disabled={loading}
+                                />
+                                <p className="text-xs text-slate-500 mt-1.5">
+                                    Provide a PAT with <code>repo</code> scope to allow the agent to squash fixes and push directly to your repository.
+                                </p>
                             </div>
                         </div>
 
