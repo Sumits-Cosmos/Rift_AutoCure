@@ -1,5 +1,5 @@
 """
-FixGeneratorAgent: Uses the Gemini LLM to generate minimal code patches
+FixGeneratorAgent: Uses the LLM (Gemini or Grok) to generate minimal code patches
 for classified failures and commits them to the local branch.
 """
 import os
@@ -7,11 +7,9 @@ import re
 import json
 import logging
 import subprocess
-import google.generativeai as genai
-from dotenv import load_dotenv
 from .shared_state import SharedState, FixRecord
+from ..llm_client import get_llm_client
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 FIX_PROMPT = """
@@ -49,23 +47,19 @@ Example response:
 
 
 class FixGeneratorAgent:
-    """Generates and applies code fixes using Gemini LLM."""
+    """Generates and applies code fixes using LLM (Gemini or Grok)."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
-        else:
-            self.model = None
-            logger.warning("[FixGeneratorAgent] No Gemini API key - fixes will be skipped.")
+        self.client = get_llm_client()
+        if not self.client:
+            logger.warning("[FixGeneratorAgent] No LLM client available - fixes will be skipped.")
 
     def run(self, state: SharedState) -> SharedState:
         if not state.classified_failures:
             logger.info("[FixGeneratorAgent] No failures to fix.")
             return state
 
-        if not self.model:
+        if not self.client:
             logger.warning("[FixGeneratorAgent] Skipping fixes - no LLM available.")
             return state
 
@@ -114,8 +108,7 @@ class FixGeneratorAgent:
         )
 
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
+            text = self.client.generate(prompt)
             text = re.sub(r"^```[a-z]*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
             fix_data = json.loads(text)

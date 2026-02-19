@@ -1,17 +1,14 @@
 """
-FailureClassifierAgent: Uses the Gemini LLM to classify test failures into
-structured categories and extract precise error details.
-Includes a significantly improved regex fallback for Node.js / Jest output.
+FailureClassifierAgent: Uses the LLM (Gemini or Grok) to classify test failures
+into structured categories and extract precise error details.
+Includes an improved regex fallback with Vitest / Jest / Python support.
 """
-import os
 import re
 import json
 import logging
-import google.generativeai as genai
-from dotenv import load_dotenv
 from .shared_state import SharedState
+from ..llm_client import get_llm_client
 
-load_dotenv()
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT = """
@@ -40,16 +37,12 @@ Respond ONLY with a valid JSON array. No prose, no markdown fences, no explanati
 
 
 class FailureClassifierAgent:
-    """Classifies test failures using Gemini LLM with improved regex fallback."""
+    """Classifies test failures using LLM with improved regex fallback."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
-        else:
-            self.model = None
-            logger.warning("[FailureClassifierAgent] No Gemini API key - using regex fallback.")
+        self.client = get_llm_client()
+        if not self.client:
+            logger.warning("[FailureClassifierAgent] No LLM client available — using regex fallback only.")
 
     def run(self, state: SharedState) -> SharedState:
         if state.test_exit_code == 0:
@@ -61,7 +54,7 @@ class FailureClassifierAgent:
         combined = f"{state.test_stdout}\n{state.test_stderr}"
         logger.info(f"[FailureClassifierAgent] Classifying failures from output ({len(combined)} chars)...")
 
-        if self.model:
+        if self.client:
             failures = self._classify_with_llm(state)
         else:
             failures = self._classify_with_regex(state)
@@ -83,8 +76,7 @@ class FailureClassifierAgent:
             exit_code=state.test_exit_code
         )
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
+            text = self.client.generate(prompt)
             text = re.sub(r"^```[a-z]*\n?", "", text)
             text = re.sub(r"\n?```$", "", text)
             parsed = json.loads(text)
@@ -97,9 +89,82 @@ class FailureClassifierAgent:
             return self._classify_with_regex(state)
 
     def _classify_with_regex(self, state: SharedState):
-        """Enhanced regex-based fallback classifier supporting Python + Node.js output."""
+        """Enhanced regex-based fallback classifier supporting Python + Node.js (Jest + Vitest) output."""
         combined = f"{state.test_stdout}\n{state.test_stderr}"
         failures = []
+
+        # ──────────────────────────────────────────────
+        # Vitest-specific patterns
+        # ──────────────────────────────────────────────
+
+        # Vitest FAIL line in stderr: " FAIL  src/tests/file.test.js [ src/tests/file.test.js ]"
+        vitest_fail_pat = re.compile(
+            r"FAIL\s+([\w/\\.]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))\s*(?:\[|$)",
+            re.MULTILINE
+        )
+        for m in vitest_fail_pat.finditer(combined):
+            file_name = m.group(1).strip()
+            failures.append({
+                "file": file_name,
+                "bug_type": "SYNTAX",
+                "line": 0,
+                "description": f"SYNTAX error in {file_name} line 0 → Fix: check for invalid JS/TS syntax or JSX extension",
+                "raw_error": m.group(0)[:200]
+            })
+
+        # Vitest assertion failures: "expected X to be Y" — extract file from "❯ src/tests/file.test.js"
+        vitest_assert_pat = re.compile(
+            r"❯\s+([\w/\\.]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))\s*[:\s]*(\d+)?",
+            re.MULTILINE
+        )
+        for m in vitest_assert_pat.finditer(combined):
+            file_name = m.group(1).strip()
+            line_num = int(m.group(2)) if m.group(2) else 0
+            failures.append({
+                "file": file_name,
+                "bug_type": "LOGIC",
+                "line": line_num,
+                "description": f"LOGIC error in {file_name} line {line_num} → Fix: review failing test assertions",
+                "raw_error": m.group(0)[:200]
+            })
+
+        # Vitest: "Failed to parse source for import analysis" + file from FAIL line
+        parse_fail_pat = re.compile(
+            r"Failed to parse source for import analysis.*?invalid JS syntax",
+            re.DOTALL
+        )
+        if parse_fail_pat.search(combined):
+            # The file is typically in the preceding FAIL line — already captured above
+            # But also look for source file references
+            source_ref = re.compile(
+                r"FAIL\s+([\w/\\.]+\.(?:js|ts|jsx|tsx))\s*\[\s*([\w/\\.]+\.(?:js|ts|jsx|tsx))\s*\]",
+                re.MULTILINE
+            )
+            for m in source_ref.finditer(combined):
+                file_name = m.group(1).strip()
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "SYNTAX",
+                    "line": 0,
+                    "description": f"SYNTAX error in {file_name} line 0 → Fix: file contains invalid JS syntax, check for JSX or missing extension",
+                    "raw_error": f"Failed to parse source for import analysis in {file_name}"[:200]
+                })
+
+        # Vitest "expected undefined to be X" — try to find source file from test file imports
+        vitest_undefined_pat = re.compile(
+            r"([\w/\\.]+\.(?:test|spec)\.(?:js|ts|jsx|tsx))\s*>\s*.*?>\s*.*?\n\s*→\s*expected\s+(\S+)\s+to\s+be",
+            re.MULTILINE
+        )
+        for m in vitest_undefined_pat.finditer(combined):
+            file_name = m.group(1).strip()
+            if not any(f["file"] == file_name for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "LOGIC",
+                    "line": 0,
+                    "description": f"LOGIC error in {file_name} line 0 → Fix: function returns undefined, check implementation",
+                    "raw_error": m.group(0)[:200]
+                })
 
         # ──────────────────────────────────────────────
         # Node / Jest specific patterns
@@ -126,13 +191,14 @@ class FailureClassifierAgent:
         jest_fail_file_pat = re.compile(r"^(?:FAIL|●)\s+([\w/\\.]+\.(?:test|spec)\.\w+)", re.MULTILINE)
         for m in jest_fail_file_pat.finditer(combined):
             file_name = m.group(1).strip()
-            failures.append({
-                "file": file_name,
-                "bug_type": "LOGIC",
-                "line": 0,
-                "description": f"LOGIC error in {file_name} line 0 → Fix: review failing test assertions",
-                "raw_error": m.group(0)[:200]
-            })
+            if not any(f["file"] == file_name for f in failures):
+                failures.append({
+                    "file": file_name,
+                    "bug_type": "LOGIC",
+                    "line": 0,
+                    "description": f"LOGIC error in {file_name} line 0 → Fix: review failing test assertions",
+                    "raw_error": m.group(0)[:200]
+                })
 
         # Jest "● Test suite failed to run" — module or syntax problem
         suite_fail = re.compile(r"● Test suite failed to run\s*\n\s*(.+)", re.MULTILINE)
