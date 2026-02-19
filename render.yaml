@@ -1,11 +1,11 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Deploy all 3 Cognitest services with: "New" → "Blueprint" → paste repo URL
+version: 1
 
 services:
-  # ─── Python FastAPI Service ──────────────────────────────────────────────────
+  # ─── Python FastAPI Service ─────────────────────────────
   - type: web
     name: cognitest-python-service
-    runtime: python
+    env: python
     region: oregon
     plan: free
     rootDir: python-service
@@ -13,12 +13,10 @@ services:
     startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.0"
       - key: LLM_PROVIDER
         value: gemini
       - key: GEMINI_API_KEY
-        sync: false  # Set manually in dashboard
+        sync: false
       - key: XAI_API_KEY
         sync: false
       - key: GITHUB_TOKEN
@@ -28,10 +26,10 @@ services:
       - key: LLM_MIN_SLEEP
         value: "3"
 
-  # ─── Node.js Express Backend ─────────────────────────────────────────────────
+  # ─── Node.js Express Backend ─────────────────────────────
   - type: web
     name: cognitest-backend
-    runtime: node
+    env: node
     region: oregon
     plan: free
     rootDir: backend
@@ -39,14 +37,11 @@ services:
     startCommand: node server.js
     healthCheckPath: /health
     envVars:
-      - key: NODE_VERSION
-        value: "20.11.0"
       - key: FASTAPI_URL
-        sync: false  # Set to https://<python-service-url>.onrender.com after deploy
+        sync: false
       - key: STORAGE_DIR
         value: ./storage
 
-# ─── React/Vite Frontend (Static Site) ────────────────────────────────────────
 staticSites:
   - name: cognitest-frontend
     rootDir: frontend
@@ -58,6 +53,6 @@ staticSites:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        sync: false  # Set to https://<backend-url>.onrender.com after deploy
+        sync: false
       - key: VITE_PYTHON_API_URL
-        sync: false  # Set to https://<python-service-url>.onrender.com after deploy
+        sync: false
