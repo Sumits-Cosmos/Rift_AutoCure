@@ -66,7 +66,9 @@ class FixGeneratorAgent:
         api_key = os.getenv("GEMINI_API_KEY", "")
         if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
+            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            self.model = genai.GenerativeModel(model_name)
+            logger.info(f"[FixGeneratorAgent] Using Gemini model: {model_name}")
         else:
             self.model = None
             logger.warning("[FixGeneratorAgent] No Gemini API key - fixes will be skipped.")

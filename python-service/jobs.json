@@ -1,0 +1,128 @@
+{
+  "560021bb-4075-4c92-a05a-333b079ee02a": {
+    "status": "PARTIAL",
+    "result": {
+      "repository": "https://github.com/Sumits-Cosmos/WordCounter.git",
+      "branch": "COSMO_NIBBLERS_UTKARSH_KUMAR_AI_Fix",
+      "total_failures": 6,
+      "total_fixes": 1,
+      "iterations_used": 1,
+      "status": "PARTIAL",
+      "time_taken_seconds": 64.51,
+      "language": "node",
+      "test_framework": "vitest",
+      "module_system": "esm",
+      "fixes": [
+        {
+          "file": "src/utils/textProcessor.js",
+          "bug_type": "IMPORT",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix IMPORT error in textProcessor.js - correct module path",
+          "explanation": "Corrected the import path from './textUtilsBroken.js' to './textUtils.js' to resolve the import resolution error.",
+          "status": "Fixed",
+          "iteration": 1
+        }
+      ],
+      "all_fixes": [
+        {
+          "file": "src/utils/textProcessor.js",
+          "bug_type": "IMPORT",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix IMPORT error in textProcessor.js - correct module path",
+          "explanation": "Corrected the import path from './textUtilsBroken.js' to './textUtils.js' to resolve the import resolution error.",
+          "status": "Fixed",
+          "iteration": 1
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 1,
+          "failure_count": 6,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/utils/textProcessor.js:IMPORT",
+            "src/tests/statsCalculator.test.js:SYNTAX",
+            "src/utils/textUtils.js:TYPE_ERROR",
+            "src/tests/textUtils.test.js:LOGIC",
+            "src/tests/textUtils.test.js:LOGIC",
+            "src/tests/textUtils.test.js:LOGIC"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "src/tests/textUtils.test.js:LOGIC"
+      ],
+      "error": "Healing loop detected oscillation \u2014 same failures recurring: src/tests/textUtils.test.js:LOGIC. Applied 1 fix(es) before stopping.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/Sumits-Cosmos/WordCounter.git",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar",
+    "created_at": 1771500151.8601525
+  },
+  "7238237b-5a36-4d46-8158-d0d121e52dde": {
+    "status": "QUEUED",
+    "result": null,
+    "repo_url": "https://github.com/ukg1911/ci-cd-testing",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar",
+    "created_at": 1771501974.122466
+  },
+  "7bbfe597-6fca-4a63-a639-343b120ed8ba": {
+    "status": "QUEUED",
+    "result": null,
+    "repo_url": "https://github.com/ukg1911/ci-cd-testing",
+    "team_name": "cosmo nibblers",
+    "leader_name": "utkarsh kumar",
+    "created_at": 1771502014.750076
+  },
+  "5e58276f-b325-4c4e-a8ea-13ecdfa48156": {
+    "status": "FAILED",
+    "result": {
+      "repository": "https://github.com/ukg1911/ci-cd-testing",
+      "branch": "AL_AKJ_AI_Fix",
+      "total_failures": 1,
+      "total_fixes": 0,
+      "iterations_used": 2,
+      "status": "FAILED",
+      "time_taken_seconds": 7.96,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [],
+      "all_fixes": [],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "unknown:IMPORT"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "unknown:IMPORT"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "unknown:IMPORT"
+      ],
+      "error": "No progress for 2 consecutive iterations. Applied 0 fix(es) total but 1 failure(s) remain.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/ukg1911/ci-cd-testing",
+    "team_name": "al",
+    "leader_name": "akj",
+    "created_at": 1771502292.1801672
+  }
+}
