@@ -34,10 +34,13 @@ Framework: {framework}
 
 For each error or failure found, output a JSON array. Each item must have:
 - "file": the relative file path where the error occurred (e.g., "src/main.py", "src/utils.js"). Extract from stack traces, error messages, or FAIL lines. Use "unknown" ONLY if truly unidentifiable.
-- "bug_type": EXACTLY one of: STRUCTURAL | SYNTAX | IMPORT | TYPE_ERROR | LOGIC | LINTING | INDENTATION
+- "bug_type": EXACTLY one of: DEPENDENCY | STRUCTURAL | SYNTAX | IMPORT | TYPE_ERROR | LOGIC | LINTING | INDENTATION
 - "line": line number as integer (0 if unknown)
 - "description": concise string: "BUG_TYPE error in FILE line LINE → Fix: SUGGESTION"
 - "raw_error": the exact error snippet from the output (max 200 chars)
+
+DEPENDENCY means: a pip/npm package is NOT INSTALLED (ModuleNotFoundError, "Cannot find module" for an npm package).
+The fix is to add the package to requirements.txt or package.json, NOT to edit source code.
 
 STRUCTURAL means: ESM/CJS mismatch, missing exports, JSX transform config, vitest globals missing, etc.
 These are CONFIG-level issues, not code bugs.
@@ -47,9 +50,26 @@ IMPORTANT: Always extract the ACTUAL file path from error output. Look for:
 - "FAIL path/to/file.test.js"
 - 'File "path/to/file.py", line N'
 - "Cannot find module 'path'" - the importing file AND the missing module
+- pytest style: "path/to/file.py::test_name FAILED"
+
+CRITICAL: IGNORE library/framework paths in stack traces. These are NOT user code:
+- starlette/, uvicorn/, django/, flask/, fastapi/
+- site-packages/, node_modules/
+- internal/, <frozen *, <string>
+Always look for the USER'S source file, not framework internals.
 
 Respond ONLY with a valid JSON array. No prose, no markdown fences.
 """
+
+# Paths that belong to libraries/frameworks — never try to fix these
+LIBRARY_PATH_FRAGMENTS = [
+    "site-packages", "node_modules", "internal/",
+    "starlette/", "uvicorn/", "django/", "flask/",
+    "fastapi/", "werkzeug/", "pydantic/", "httptools/",
+    "anyio/", "asyncio/", "concurrent/", "importlib/",
+    "<frozen", "<string>", "<module>",
+    "_pytest/", "pluggy/", "pytest/",
+]
 
 
 class FailureClassifierAgent:
@@ -82,8 +102,11 @@ class FailureClassifierAgent:
             failures = self._classify_with_regex(state)
 
         # Root-cause ordering: STRUCTURAL > IMPORT > SYNTAX > TYPE_ERROR > LOGIC
-        priority = {"STRUCTURAL": 0, "IMPORT": 1, "SYNTAX": 2, "INDENTATION": 3, "TYPE_ERROR": 4, "LOGIC": 5, "LINTING": 6}
+        priority = {"DEPENDENCY": 0, "STRUCTURAL": 1, "IMPORT": 2, "SYNTAX": 3, "INDENTATION": 4, "TYPE_ERROR": 5, "LOGIC": 6, "LINTING": 7}
         failures.sort(key=lambda f: priority.get(f.get("bug_type", "LOGIC"), 5))
+
+        # Filter out library paths — never try to fix framework internals
+        failures = [f for f in failures if not self._is_library_path(f.get("file", ""))]
 
         state.classified_failures = failures
         state.total_failures = len(failures)
@@ -269,7 +292,58 @@ class FailureClassifierAgent:
         )
         for m in vitest_stdout_fail.finditer(stdout):
             file_name = m.group(1).strip().replace("\\", "/")
-            if not any(f["file"] == file_name for f in failures):
+            if self._is_library_path(file_name):
+                continue
+            # Try to extract assertion error details
+            desc = self._extract_assertion_detail(combined, file_name)
+            failures.append({
+                "file": file_name,
+                "bug_type": "LOGIC",
+                "line": 0,
+                "description": desc or f"LOGIC error in {file_name} line 0 → Fix: review failing test assertions",
+                "raw_error": m.group(0)[:200]
+            })
+
+        # Pytest FAILED line: "backend/test_main.py::test_name FAILED"
+        pytest_fail_pat = re.compile(r'([\w./\\-]+\.py)::([\w_]+)\s+FAILED', re.MULTILINE)
+        for m in pytest_fail_pat.finditer(combined):
+            file_name = m.group(1).strip().replace("\\", "/")
+            test_name = m.group(2).strip()
+            if self._is_library_path(file_name):
+                continue
+            # Extract the actual assertion failure detail
+            desc = self._extract_pytest_failure_detail(combined, test_name)
+            failures.append({
+                "file": file_name,
+                "bug_type": "LOGIC",
+                "line": 0,
+                "description": desc or f"LOGIC error in {file_name}::{test_name} → Fix: review failing assertion",
+                "raw_error": m.group(0)[:200]
+            })
+
+        # "● Test suite failed to run" with file extraction
+        suite_fail = re.compile(r"● Test suite failed to run\s*\n\s*([\s\S]*?)(?:\n\n|\n\s*●|\Z)", re.MULTILINE)
+        for m in suite_fail.finditer(combined):
+            err_block = m.group(1).strip()
+            file_name = self._extract_file_from_block(err_block)
+            bt = "SYNTAX" if "SyntaxError" in err_block else "IMPORT"
+            failures.append({
+                "file": file_name,
+                "bug_type": bt,
+                "line": self._extract_line_from_block(err_block),
+                "description": f"{bt} error in {file_name} → Fix: {err_block[:100]}",
+                "raw_error": err_block[:200]
+            })
+
+        # Stack trace file extraction: "at ... (path:line:col)"
+        stack_pat = re.compile(r'at\s+\S+\s+\(([^:)]+):(\d+):\d+\)')
+        for m in stack_pat.finditer(combined):
+            fpath = m.group(1).strip()
+            if self._is_library_path(fpath):
+                continue
+            # Only add if not already covered
+            if not any(f["file"] == fpath for f in failures):
+                line_num = int(m.group(2))
                 failures.append({
                     "file": file_name,
                     "bug_type": "LOGIC",
@@ -277,6 +351,7 @@ class FailureClassifierAgent:
                     "description": f"LOGIC error in {file_name} → Fix: review failing test assertions",
                     "raw_error": m.group(0)[:200]
                 })
+                break  # Only take first non-library stack frame
 
         # ── npm ERR! ────────────────────────────────────────────────
         npm_err = re.compile(r"npm ERR!\s+(.+)", re.MULTILINE)
@@ -298,7 +373,9 @@ class FailureClassifierAgent:
             (r"SyntaxError[:\s]+(.+)", "SYNTAX"),
             (r"IndentationError[:\s]+(.+)", "INDENTATION"),
             (r"ImportError[:\s]+(.+)", "IMPORT"),
-            (r"ModuleNotFoundError[:\s]+(.+)", "IMPORT"),
+            # ModuleNotFoundError = missing pip package → DEPENDENCY, not IMPORT
+            (r"ModuleNotFoundError[:\s]+No module named '([^']+)'", "DEPENDENCY"),
+            (r"ModuleNotFoundError[:\s]+(.+)", "DEPENDENCY"),
             (r"TypeError[:\s]+(.+)", "TYPE_ERROR"),
             (r"NameError[:\s]+(.+)", "LOGIC"),
             (r"AttributeError[:\s]+(.+)", "LOGIC"),
@@ -314,11 +391,13 @@ class FailureClassifierAgent:
                 search_region = combined[:m.start()]
                 fl_matches = list(py_file_line.finditer(search_region))
                 if fl_matches:
-                    last = fl_matches[-1]
-                    fpath = last.group(1)
-                    if "/site-packages/" not in fpath and "<" not in fpath:
-                        file_name = fpath
-                        line_num = int(last.group(2))
+                    # Walk backwards through File matches, skip library paths
+                    for fl in reversed(fl_matches):
+                        fpath = fl.group(1)
+                        if not self._is_library_path(fpath):
+                            file_name = fpath
+                            line_num = int(fl.group(2))
+                            break
                 failures.append({
                     "file": file_name,
                     "bug_type": bug_type,
@@ -434,3 +513,51 @@ class FailureClassifierAgent:
             detail = m.group(1).strip()[:100]
             return f"LOGIC error in {file_name} → Fix: {detail}"
         return ""
+
+    def _is_library_path(self, file_path: str) -> bool:
+        """Check if a file path belongs to a library/framework (not user code)."""
+        if not file_path or file_path == "unknown":
+            return False
+        fp_lower = file_path.lower().replace("\\", "/")
+        for fragment in LIBRARY_PATH_FRAGMENTS:
+            if fragment.lower() in fp_lower:
+                return True
+        return False
+
+    def _extract_pytest_failure_detail(self, combined: str, test_name: str) -> str:
+        """Extract pytest failure details for a specific test function.
+        
+        Looks for the failure block like:
+            _______ test_calculation _______
+            ...assertion details...
+        """
+        # Find the pytest failure header
+        header_pat = re.compile(
+            rf'_+\s*{re.escape(test_name)}\s*_+\s*\n([\s\S]*?)(?:\n_+|\n=+|\Z)',
+            re.MULTILINE
+        )
+        m = header_pat.search(combined)
+        if not m:
+            return ""
+        
+        block = m.group(1).strip()
+        
+        # Look for assertion details
+        # "assert X == Y" or "AssertionError" or "Expected ... but got ..."
+        assertion = re.search(r'(assert\s+.+)', block)
+        if assertion:
+            detail = assertion.group(1).strip()[:120]
+            return f"LOGIC error in {test_name} → Fix: {detail}"
+        
+        assertion_err = re.search(r'(AssertionError[:\s]*.+)', block)
+        if assertion_err:
+            detail = assertion_err.group(1).strip()[:120]
+            return f"LOGIC error in {test_name} → Fix: {detail}"
+        
+        # "E       ..." lines from pytest
+        e_lines = re.findall(r'^E\s+(.+)$', block, re.MULTILINE)
+        if e_lines:
+            detail = " | ".join(e_lines[:3])[:120]
+            return f"LOGIC error in {test_name} → Fix: {detail}"
+        
+        return f"LOGIC error in {test_name} → Fix: review failing assertion"

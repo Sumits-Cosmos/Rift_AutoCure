@@ -81,18 +81,18 @@ class FixGeneratorAgent:
         repo_path = state.repo_path
 
         for failure in state.classified_failures:
-            # ── Skip oscillating failures ─────────────────────────────────
-            sig = f"{failure.get('file', '?')}:{failure.get('bug_type', '?')}"
-            sig_count = state.failure_fingerprints.get(sig, 0)
-            if sig_count >= 3:
-                logger.warning(
-                    f"[FixGeneratorAgent] ⚠️ Skipping oscillating failure {sig} "
-                    f"(seen {sig_count} times). LLM cannot fix this — needs manual intervention."
-                )
-                continue
+            bug_type = failure.get("bug_type", "")
 
-            # Try structural fix first (deterministic, no LLM needed)
-            if failure.get("bug_type") == "STRUCTURAL":
+            # Try DEPENDENCY fix first (deterministic — add to requirements.txt)
+            if bug_type == "DEPENDENCY":
+                fix_record = self._fix_missing_dependency(failure, repo_path, state)
+                if fix_record:
+                    fix_record.iteration = state.current_iteration
+                    fixes_applied.append(fix_record)
+                    continue
+
+            # Try structural fix (deterministic, no LLM needed)
+            if bug_type == "STRUCTURAL":
                 fix_record = self._apply_structural_fix(failure, repo_path, state)
                 if fix_record:
                     fix_record.iteration = state.current_iteration
@@ -115,6 +115,133 @@ class FixGeneratorAgent:
         state.cumulative_fixes = len(state.all_fixes_applied)
         logger.info(f"[FixGeneratorAgent] Applied {len(fixes_applied)} fix(es) this iteration, {state.cumulative_fixes} total.")
         return state
+    # ── Dependency fixes (deterministic — patch requirements.txt) ────────────
+
+    # Common Python module → pip package name mapping
+    PIP_NAME_MAP = {
+        "cv2": "opencv-python",
+        "PIL": "Pillow",
+        "sklearn": "scikit-learn",
+        "yaml": "PyYAML",
+        "bs4": "beautifulsoup4",
+        "gi": "PyGObject",
+        "attr": "attrs",
+        "dotenv": "python-dotenv",
+        "jose": "python-jose",
+        "jwt": "PyJWT",
+        "serial": "pyserial",
+        "usb": "pyusb",
+        "wx": "wxPython",
+        "Crypto": "pycryptodome",
+        "lxml": "lxml",
+        "dateutil": "python-dateutil",
+    }
+
+    def _fix_missing_dependency(self, failure: dict, repo_path: str, state: SharedState):
+        """Fix DEPENDENCY errors by adding missing package to requirements.txt.
+        
+        This is deterministic — no LLM needed. The error message tells us
+        exactly which module is missing, so we add it to the dependency file.
+        """
+        raw = failure.get("raw_error", "") + " " + failure.get("description", "")
+        
+        # Extract module name from "No module named 'xxx'" or "No module named 'xxx.yyy'"
+        m = re.search(r"No module named '([^']+)'", raw)
+        if not m:
+            m = re.search(r"No module named (\S+)", raw)
+        if not m:
+            logger.warning("[FixGeneratorAgent] DEPENDENCY: Could not extract module name from error.")
+            return None
+
+        module_name = m.group(1).strip().strip("'\"")
+        # Get the top-level package (e.g., "fastapi.testclient" → "fastapi")
+        top_module = module_name.split(".")[0]
+        
+        # Map to pip package name (some modules have different pip names)
+        pip_name = self.PIP_NAME_MAP.get(top_module, top_module)
+        
+        logger.info(f"[FixGeneratorAgent] DEPENDENCY fix: missing module '{module_name}' → pip package '{pip_name}'")
+
+        if state.language == "python":
+            return self._add_to_requirements_txt(repo_path, pip_name, top_module)
+        elif state.language == "node":
+            return self._add_to_package_json(repo_path, pip_name)
+        
+        return None
+
+    def _add_to_requirements_txt(self, repo_path: str, pip_name: str, module_name: str):
+        """Add a pip package to requirements.txt."""
+        req_path = os.path.join(repo_path, "requirements.txt")
+        
+        # Read existing requirements
+        existing = ""
+        if os.path.exists(req_path):
+            with open(req_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+        
+        # Check if already present (case-insensitive, ignore version specifiers)
+        existing_lower = existing.lower()
+        if pip_name.lower() in existing_lower:
+            logger.info(f"[FixGeneratorAgent] '{pip_name}' already in requirements.txt — nothing to add.")
+            return None
+        
+        # Append the package
+        new_content = existing.rstrip() + f"\n{pip_name}\n"
+        with open(req_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        
+        commit_msg = f"[AI-AGENT] Fix DEPENDENCY — add '{pip_name}' to requirements.txt"
+        self._git_commit(repo_path, req_path, commit_msg)
+        
+        logger.info(f"[FixGeneratorAgent] ✅ Added '{pip_name}' to requirements.txt")
+        return FixRecord(
+            file="requirements.txt",
+            bug_type="DEPENDENCY",
+            line=0,
+            commit_message=commit_msg,
+            explanation=f"Added missing pip package '{pip_name}' (module '{module_name}') to requirements.txt.",
+            status="Fixed"
+        )
+
+    def _add_to_package_json(self, repo_path: str, package_name: str):
+        """Add an npm package to package.json dependencies."""
+        pkg_path = os.path.join(repo_path, "package.json")
+        if not os.path.exists(pkg_path):
+            return None
+        
+        try:
+            with open(pkg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            deps = data.get("dependencies", {})
+            dev_deps = data.get("devDependencies", {})
+            if package_name in deps or package_name in dev_deps:
+                logger.info(f"[FixGeneratorAgent] '{package_name}' already in package.json.")
+                return None
+            
+            # Add to dependencies
+            if "dependencies" not in data:
+                data["dependencies"] = {}
+            data["dependencies"][package_name] = "*"
+            
+            with open(pkg_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            
+            commit_msg = f"[AI-AGENT] Fix DEPENDENCY — add '{package_name}' to package.json"
+            self._git_commit(repo_path, pkg_path, commit_msg)
+            
+            return FixRecord(
+                file="package.json",
+                bug_type="DEPENDENCY",
+                line=0,
+                commit_message=commit_msg,
+                explanation=f"Added missing npm package '{package_name}' to package.json.",
+                status="Fixed"
+            )
+        except Exception as e:
+            logger.error(f"[FixGeneratorAgent] Failed to update package.json: {e}")
+            return None
 
     # ── Structural fixes (deterministic) ──────────────────────────────────────
 
