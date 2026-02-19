@@ -67,9 +67,9 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isRunning ? 'bg-blue-500/15 border border-blue-500/30' :
-                            isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
-                                isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
-                                    'bg-indigo-500/15 border border-indigo-500/30'
+                        isPassed ? 'bg-emerald-500/15 border border-emerald-500/30' :
+                            isFinal ? 'bg-rose-500/15 border border-rose-500/30' :
+                                'bg-indigo-500/15 border border-indigo-500/30'
                         }`}>
                         {isRunning ? (
                             <Loader2 size={18} className="text-blue-400 animate-spin" />
@@ -113,10 +113,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
             >
                 <div
                     className={`h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden ${isPassed
-                            ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                            : isFinal
-                                ? 'bg-gradient-to-r from-rose-500 to-rose-400'
-                                : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                        : isFinal
+                            ? 'bg-gradient-to-r from-rose-500 to-rose-400'
+                            : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400'
                         }`}
                     style={{ width: `${isFinal && !isPassed ? 100 : Math.max(progress, 5)}%` }}
                 >
@@ -142,10 +142,10 @@ function ProgressHeader({ iterations, maxIterations = 5, status, timestamps, isR
                         <div key={i} className="flex items-center flex-1 gap-1">
                             <div
                                 className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${current
-                                        ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
-                                        : done
-                                            ? 'bg-emerald-400/70'
-                                            : 'bg-white/[0.08]'
+                                    ? 'bg-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.6)] scale-125'
+                                    : done
+                                        ? 'bg-emerald-400/70'
+                                        : 'bg-white/[0.08]'
                                     }`}
                             />
                             {i < maxIterations - 1 && (
@@ -305,65 +305,127 @@ function FixesTable({ fixes }) {
 
 // ─── Score Board ──────────────────────────────────────────────────────────────
 
+// ─── Score Board ──────────────────────────────────────────────────────────────
+
 function ScoreBoard({ result }) {
     if (!result) return null;
-    const score = calcScore(result);
+
+    // Calculate Score Components
+    const baseScore = 100;
     const timeMins = (result.time_taken_seconds || 0) / 60;
     const speedBonus = timeMins < 5 ? 10 : 0;
-    const commitPenalty = result.total_fixes > 20 ? (result.total_fixes - 20) * 2 : 0;
-    const maxScore = 110;
-    const percentage = Math.min(100, Math.round((score / maxScore) * 100));
+    const commits = result.total_fixes || 0;
+    const commitPenalty = commits > 20 ? (commits - 20) * 2 : 0;
+
+    // Final Calculation
+    const totalScore = Math.max(0, baseScore + speedBonus - commitPenalty);
+    const maxPossible = 110; // 100 base + 10 bonus
+    const percent = Math.min(100, Math.round((totalScore / maxPossible) * 100));
+
+    // Color logic
+    const scoreColor = totalScore >= 100 ? 'text-emerald-400' : totalScore >= 80 ? 'text-amber-400' : 'text-rose-400';
+    const strokeColor = totalScore >= 100 ? '#34d399' : totalScore >= 80 ? '#fbbf24' : '#fb7185';
 
     return (
-        <div className="glass-card p-5 animate-fadeInUp relative overflow-hidden">
-            {/* Decorative gradients */}
-            <div className="absolute -top-16 -right-16 w-32 h-32 bg-indigo-500/[0.08] rounded-full blur-[50px] pointer-events-none" />
-            <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-purple-500/[0.08] rounded-full blur-[50px] pointer-events-none" />
+        <div className="glass-card p-6 animate-fadeInUp relative overflow-hidden group">
+            {/* Glowing background effects */}
+            <div className={`absolute -top-20 -right-20 w-48 h-48 rounded-full blur-[60px] opacity-20 pointer-events-none transition-colors duration-1000 ${totalScore >= 80 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
 
             <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-4">
-                    <Trophy size={16} className="text-amber-400" />
-                    <h3 className="text-base font-bold text-white">Score Breakdown</h3>
+                <div className="flex items-center gap-2 mb-6">
+                    <Trophy size={20} className="text-amber-400" />
+                    <h3 className="text-lg font-bold text-white">Performance Score</h3>
                 </div>
 
-                {/* Score display */}
-                <div className="flex items-center justify-center mb-5">
-                    <div className="relative w-28 h-28">
-                        <svg className="w-28 h-28 -rotate-90" viewBox="0 0 120 120" aria-hidden="true">
-                            <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
-                            <circle
-                                cx="60" cy="60" r="52" fill="none"
-                                stroke={score >= 100 ? '#34d399' : score >= 80 ? '#fbbf24' : '#fb7185'}
-                                strokeWidth="8"
-                                strokeLinecap="round"
-                                strokeDasharray={`${percentage * 3.27} ${327 - percentage * 3.27}`}
-                                className="transition-all duration-1000 ease-out"
-                            />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className={`text-2xl font-black ${score >= 100 ? 'text-emerald-400' : score >= 80 ? 'text-amber-400' : 'text-rose-400'}`}>
-                                {score}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium">POINTS</span>
+                <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-8 items-center">
+                    {/* Left: Circular Score */}
+                    <div className="flex flex-col items-center justify-center p-2">
+                        <div className="relative w-40 h-40">
+                            {/* SVG Circle */}
+                            <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120" aria-label="Score chart">
+                                <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                                <circle
+                                    cx="60" cy="60" r="52" fill="none"
+                                    stroke={strokeColor}
+                                    strokeWidth="8"
+                                    strokeLinecap="round"
+                                    strokeDasharray={`${percent * 3.27} ${327 - percent * 3.27}`}
+                                    className="transition-all duration-1000 ease-out"
+                                />
+                            </svg>
+                            {/* Inner Text */}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className={`text-5xl font-black tracking-tighter ${scoreColor} drop-shadow-lg`}>
+                                    {totalScore}
+                                </span>
+                                <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mt-1">Total Points</span>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                {/* Breakdown */}
-                <div className="space-y-2">
-                    <ScoreLine label="Base Score" value="+100" color="text-slate-300" />
-                    <ScoreLine
-                        label={`Speed (${timeMins.toFixed(1)} min)`}
-                        value={speedBonus > 0 ? `+${speedBonus}` : '—'}
-                        color={speedBonus > 0 ? 'text-emerald-400' : 'text-slate-600'}
-                    />
-                    <ScoreLine
-                        label={`Commits (${result.total_fixes})`}
-                        value={commitPenalty > 0 ? `-${commitPenalty}` : '—'}
-                        color={commitPenalty > 0 ? 'text-rose-400' : 'text-slate-600'}
-                    />
-                    <div className="border-t border-white/[0.06] pt-2 mt-2">
-                        <ScoreLine label="Final Score" value={score} color={score >= 100 ? 'text-emerald-400' : 'text-amber-400'} bold />
+                    {/* Right: Detailed Breakdown Bars */}
+                    <div className="space-y-5 w-full">
+
+                        {/* 1. Base Score */}
+                        <div className="space-y-1.5">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400" /> Base Score
+                                </span>
+                                <span className="text-white font-bold">100/100</span>
+                            </div>
+                            <div className="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 w-full shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                            </div>
+                        </div>
+
+                        {/* 2. Speed Bonus */}
+                        <div className="space-y-1.5">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                                    <Clock size={12} className={speedBonus > 0 ? 'text-emerald-400' : 'text-slate-600'} />
+                                    Speed Bonus <span className="text-xs text-slate-500">(&lt; 5 mins)</span>
+                                </span>
+                                <span className={`font-bold ${speedBonus > 0 ? 'text-emerald-400' : 'text-slate-600'}`}>
+                                    {speedBonus > 0 ? '+10' : '0'}/10
+                                </span>
+                            </div>
+                            <div className="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                                <div
+                                    className={`h-full transition-all duration-500 ${speedBonus > 0 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-transparent'}`}
+                                    style={{ width: speedBonus > 0 ? '100%' : '0%' }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
+                                <span>Time taken: {timeMins.toFixed(1)}m</span>
+                                <span>{speedBonus > 0 ? 'Bonus Applied' : 'No Bonus'}</span>
+                            </div>
+                        </div>
+
+                        {/* 3. Efficiency Penalty */}
+                        <div className="space-y-1.5">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-300 font-medium flex items-center gap-1.5">
+                                    <Activity size={12} className={commitPenalty > 0 ? 'text-rose-400' : 'text-slate-600'} />
+                                    Efficiency Penalty <span className="text-xs text-slate-500">(&gt; 20 steps)</span>
+                                </span>
+                                <span className={`font-bold ${commitPenalty > 0 ? 'text-rose-400' : 'text-slate-600'}`}>
+                                    {commitPenalty > 0 ? `-${commitPenalty}` : '0'}
+                                </span>
+                            </div>
+                            <div className="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden relative">
+                                {/* Background guide lines for penalty ticks could go here */}
+                                <div
+                                    className={`h-full transition-all duration-500 ${commitPenalty > 0 ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.5)]' : 'bg-transparent'}`}
+                                    style={{ width: `${Math.min(100, (commitPenalty / 50) * 100)}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-500 px-0.5">
+                                <span>Total steps: {commits}</span>
+                                <span>{commitPenalty > 0 ? `${commits - 20} steps over limit` : 'Within limits'}</span>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>

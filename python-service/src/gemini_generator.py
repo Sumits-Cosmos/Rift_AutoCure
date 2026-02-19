@@ -16,43 +16,161 @@ else:
     MODEL = genai.GenerativeModel("gemini-2.5-flash")
 
 PROMPT_TEMPLATE = """
-You are an API testing generator. Generate comprehensive test cases for the given API endpoints.
+You are a senior QA engineer and an expert CI/CD test case generator for Cognitest, an autonomous DevOps healing agent built for the RIFT 2026 Hackathon.
 
-IMPORTANT RULES:
-1. For authentication endpoints (register, signup, login, signin), generate tests FIRST
-2. For protected endpoints, assume a valid auth token will be available
-3. Include both positive tests (expected success) and negative tests (expected failure)
-4. Use realistic expected status codes:
-   - 200/201 for successful operations
-   - 400 for bad requests/validation errors
-   - 401 for unauthorized access
-   - 403 for forbidden access
-   - 404 for not found
-   - 409 for conflicts (e.g., duplicate username)
+Your goal is to generate highly comprehensive, production-grade API test cases from the given Swagger/OpenAPI endpoint definitions. The tests will be executed via Newman (Postman CLI) to verify API correctness. The healing agent will then automatically detect, classify, and fix any failures.
 
-Given API endpoints in JSON:
+═══════════════════════════════════════════════════════
+ BUG TYPES THE AGENT CAN DETECT & FIX
+═══════════════════════════════════════════════════════
+When generating tests, keep in mind the agent classifies bugs into EXACTLY these categories:
+
+1. LINTING
+   - Unused imports (e.g., `import os` when os is never used)
+   - Unused variables, dead code, naming convention violations
+   - Example: "Unused import 'os'" in src/utils.py line 15
+
+2. SYNTAX
+   - Missing colons (`:`) at end of function/class/if/for/while definitions
+   - Missing or unmatched brackets `()`, `[]`, `{{}}`
+   - Missing semicolons (JS), missing commas in dicts/objects
+   - Example: "SyntaxError: expected ':'" in src/validator.py line 8
+
+3. LOGIC
+   - Wrong return values (returning wrong variable)
+   - Incorrect calculations (wrong operator: `+` instead of `*`)
+   - Flawed boolean conditions (`and` instead of `or`, wrong comparisons)
+   - Off-by-one errors, wrong loop bounds
+   - Failed test assertions (expected 200 got 500)
+   - Example: "AssertionError: expected 42 but got 0"
+
+4. TYPE_ERROR
+   - Passing string where int expected, or vice versa
+   - Calling methods on wrong types (`None.strip()`)
+   - Missing type conversions (`int()`, `str()`, `JSON.parse()`)
+   - Example: "TypeError: unsupported operand type(s)"
+
+5. IMPORT
+   - Missing import statements (`NameError: name 'json' is not defined`)
+   - Wrong import paths (`from utils import X` when X doesn't exist)
+   - Circular imports causing ImportError
+   - Example: "ImportError: cannot import name 'process_data'"
+
+6. INDENTATION
+   - Unexpected indent / dedent in Python
+   - Mixed tabs and spaces
+   - Example: "IndentationError: unexpected indent"
+
+═══════════════════════════════════════════════════════
+ API ENDPOINTS TO TEST
+═══════════════════════════════════════════════════════
 {endpoints}
 
-Generate test cases in this EXACT JSON format:
+═══════════════════════════════════════════════════════
+ TEST CASE GENERATION RULES
+═══════════════════════════════════════════════════════
+
+1. ORDERING (critical for test execution):
+   a. Registration / Sign-up endpoints FIRST (creates users)
+   b. Login / Authentication endpoints SECOND (gets auth tokens)
+   c. CRUD operations on resources THIRD (use captured token)
+   d. Edge cases and negative tests LAST
+
+2. COVERAGE REQUIREMENTS:
+   - At least 1 positive test (happy path) per endpoint
+   - At least 1 negative test per endpoint (missing fields, wrong types, unauthorized)
+   - Authentication-aware: mark `requiresAuth: true` for protected endpoints
+   - Test all HTTP methods that each endpoint supports
+
+3. STATUS CODE EXPECTATIONS:
+   - 200: Successful GET, PUT, PATCH
+   - 201: Successful POST (resource created)
+   - 204: Successful DELETE (no content)
+   - 400: Missing required fields, validation errors, malformed request body
+   - 401: Missing or invalid authentication token
+   - 403: Forbidden (wrong role/permissions)
+   - 404: Resource not found, invalid ID
+   - 409: Conflict (duplicate username, email already exists)
+   - 422: Unprocessable entity (valid JSON but fails business rules)
+   - 500: Server error (should NOT happen if code is correct)
+
+4. REQUEST BODY RULES:
+   - For POST/PUT/PATCH: always include realistic sample request bodies
+   - Use realistic field names: name, email, password, title, description, etc.
+   - Include edge cases: empty strings, null values, very long strings
+   - For negative tests: omit required fields, send wrong data types
+
+5. QUALITY STANDARDS:
+   - Each test name must be unique and descriptive
+   - Descriptions must clearly state WHAT is being tested and WHY
+   - Prioritize tests that are most likely to catch real bugs like:
+     Logic errors in calculations, wrong status codes, missing validations,
+     type coercion issues, missing error handling
+
+═══════════════════════════════════════════════════════
+ RESPONSE FORMAT (strict JSON)
+═══════════════════════════════════════════════════════
+Return ONLY a JSON array with NO surrounding text, NO markdown, NO comments.
+
 [
   {{
-    "name": "Descriptive test name",
-    "method": "GET|POST|PUT|DELETE|PATCH",
-    "path": "/api/path",
+    "name": "Register new user with valid data",
+    "method": "POST",
+    "path": "/api/auth/register",
+    "expected": 201,
+    "description": "Verifies user registration with valid email and password returns 201",
+    "category": "positive",
+    "priority": "high",
+    "requiresAuth": false,
+    "body": {{"username": "testuser", "email": "test@example.com", "password": "SecurePass123!"}}
+  }},
+  {{
+    "name": "Register with duplicate email should fail",
+    "method": "POST",
+    "path": "/api/auth/register",
+    "expected": 409,
+    "description": "Verifies duplicate email returns 409 conflict error",
+    "category": "negative",
+    "priority": "high",
+    "requiresAuth": false,
+    "body": {{"username": "testuser2", "email": "test@example.com", "password": "SecurePass123!"}}
+  }},
+  {{
+    "name": "Login with valid credentials",
+    "method": "POST",
+    "path": "/api/auth/login",
     "expected": 200,
-    "description": "What this test verifies",
-    "category": "positive|negative",
-    "priority": "high|medium|low",
-    "requiresAuth": true|false
+    "description": "Verifies login returns auth token for valid credentials",
+    "category": "positive",
+    "priority": "high",
+    "requiresAuth": false,
+    "body": {{"email": "test@example.com", "password": "SecurePass123!"}}
+  }},
+  {{
+    "name": "Get all items requires authentication",
+    "method": "GET",
+    "path": "/api/items",
+    "expected": 401,
+    "description": "Verifies unauthenticated request to protected endpoint returns 401",
+    "category": "negative",
+    "priority": "medium",
+    "requiresAuth": false
+  }},
+  {{
+    "name": "Get all items with valid token",
+    "method": "GET",
+    "path": "/api/items",
+    "expected": 200,
+    "description": "Verifies authenticated GET returns list of items",
+    "category": "positive",
+    "priority": "high",
+    "requiresAuth": true
   }}
 ]
 
-ORDER the tests so that:
-1. Register/Create user tests come first
-2. Login/Auth tests come second  
-3. All other tests come after (these will use the captured auth token)
+Generate as many tests as needed to thoroughly cover ALL endpoints. Aim for at least 3-5 tests per endpoint (mix of positive and negative).
 
-Return ONLY the JSON array, no other text.
+Return ONLY the JSON array.
 """
 
 import asyncio

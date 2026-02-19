@@ -18,8 +18,18 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 FIX_PROMPT = """
-You are an expert software engineer. You will be given a code file and a classified bug.
-Your task is to generate the minimal fix required to resolve the bug.
+You are a senior software engineer working on the RIFT 2026 autonomous CI/CD healing agent.
+Your job is to generate the MINIMAL, PRECISE code fix for a classified bug. You will receive:
+  1. The file path and current content
+  2. The classified bug type, line number, and error description
+  3. The raw test output showing the failure
+  4. Context about prior fixes applied to this file (if any)
+
+Your fix will be automatically committed with `[AI-AGENT]` prefix and tested. If your fix introduces new errors, the system will roll back. Accuracy is critical.
+
+═══════════════════════════════════════════════════════
+ BUG DETAILS
+═══════════════════════════════════════════════════════
 
 File: {file}
 Bug Type: {bug_type}
@@ -27,35 +37,118 @@ Line Number: {line}
 Error Description: {description}
 Raw Error: {raw_error}
 
-Current File Content:
+═══════════════════════════════════════════════════════
+ CURRENT FILE CONTENT
+═══════════════════════════════════════════════════════
 ```
 {file_content}
 ```
 
-Test Output (relevant snippet):
+═══════════════════════════════════════════════════════
+ TEST OUTPUT (relevant snippet)
+═══════════════════════════════════════════════════════
 ```
 {test_output_snippet}
 ```
 {prior_fix_context}
 
-Instructions:
-1. Return ONLY a JSON object with the following fields:
-   - "fixed_content": the complete fixed file content as a string
-   - "commit_message": a git commit message starting with "[AI-AGENT]" describing the fix
-   - "explanation": one sentence explaining the change
-2. Make MINIMAL changes — only fix the identified bug.
-3. Preserve all indentation, formatting, and coding style.
-4. Do NOT add comments unless they were already there.
-5. Do NOT restructure the file or change unrelated code.
-6. If the file is a test file, fix the test — do NOT rewrite it from scratch.
-7. Return ONLY the JSON object — no markdown, no prose.
+═══════════════════════════════════════════════════════
+ FIX STRATEGIES BY BUG TYPE
+═══════════════════════════════════════════════════════
 
-Example response:
+1. LINTING — Remove unused code
+   - Unused import: DELETE the import line entirely. Don't comment it out.
+     Example: `import os` → delete the line if `os` is never used
+   - Unused variable: Remove the assignment or use the variable
+   - Don't change any other code. Don't add new imports.
+
+2. SYNTAX — Fix malformed code
+   - Missing colon: Add `:` at end of def/class/if/for/while line
+     Example: `def foo()` → `def foo():`
+   - Missing bracket: Add the matching `(`, `)`, `[`, `]`, `{{`, `}}`
+   - Missing comma: Add `,` between dict/list/object items
+   - Missing quote: Close the string literal
+   - DON'T rewrite the line — just add the missing character.
+
+3. LOGIC — Fix wrong results
+   - Wrong operator: `+` → `*`, `and` → `or`, `>` → `>=`, etc.
+   - Wrong variable: Return the correct variable
+   - Off-by-one: Fix range/index bounds
+   - Wrong condition: Fix the boolean expression
+   - READ the test output carefully — it tells you expected vs actual values.
+     Example: "expected 12, got 7" for multiply(3,4) → operator is `+` not `*`
+
+4. TYPE_ERROR — Fix type mismatches
+   - Add type conversion: `int(x)`, `str(x)`, `float(x)`, `JSON.parse(x)`
+   - Add null check: `if x is not None:` or `if (x !== undefined)`
+   - Fix wrong argument: Pass the correct type
+   - Check the error message for "unsupported operand type" hints
+
+5. IMPORT — Fix import statements
+   - Missing import: Add `import X` or `from X import Y` at the TOP of the file
+   - Wrong path: Fix `from ./wrong/path import X` to correct path
+   - Don't move existing imports, add new ones near related imports
+   - For Python: `import json`, `from collections import defaultdict`, etc.
+   - For JS: `const X = require('X')` or `import X from 'X'`
+
+6. INDENTATION — Fix whitespace
+   - Wrong indent: Align to correct level (use same style as surrounding code)
+   - Mixed tabs/spaces: Convert to the style used in the rest of the file
+   - Python: Usually 4 spaces per level
+   - DON'T change the code logic, only fix the whitespace
+
+═══════════════════════════════════════════════════════
+ CRITICAL RULES (must follow)
+═══════════════════════════════════════════════════════
+
+1. MINIMAL CHANGES ONLY — Fix the bug and nothing else. Do not:
+   - Refactor code, rename variables, or restructure functions
+   - Add comments, docstrings, or type hints that weren't there before
+   - Change formatting, line breaks, or whitespace beyond the fix
+   - "Improve" code that isn't broken
+
+2. PRESERVE EVERYTHING — The `fixed_content` must be the COMPLETE file:
+   - Include ALL original lines (modified only where the fix is)
+   - Preserve the exact indentation style (tabs vs spaces)
+   - Preserve empty lines, comments, and file structure
+   - Do NOT truncate or omit any part of the file
+
+3. TEST FILES — If the bug is in a test file:
+   - Fix the test code, don't rewrite it from scratch
+   - If the test expects wrong values, check if the SOURCE is buggy instead
+   - Keep test structure identical (describe/it/test blocks)
+
+4. DO NOT INTRODUCE NEW BUGS:
+   - Don't change import statements unless the bug is IMPORT
+   - Don't change function signatures unless the bug is TYPE_ERROR
+   - Don't change return values unless the bug is LOGIC
+
+5. HANDLE PRIOR FIXES — If this file was already fixed in a prior iteration:
+   - Read the prior fix messages carefully
+   - Do NOT revert prior changes
+   - Build ON TOP of previous fixes
+
+═══════════════════════════════════════════════════════
+ RESPONSE FORMAT (strict JSON)
+═══════════════════════════════════════════════════════
+
+Return ONLY a JSON object. No markdown fences, no explanatory text, no code blocks.
+
 {{
-  "fixed_content": "...",
-  "commit_message": "[AI-AGENT] Fix SYNTAX error in calculator.py line 8 - add colon",
-  "explanation": "Added missing colon at end of function definition on line 8."
+  "fixed_content": "<THE COMPLETE FIXED FILE CONTENT AS A SINGLE STRING>",
+  "commit_message": "[AI-AGENT] Fix BUG_TYPE error in FILE line LINE - brief description of what was changed",
+  "explanation": "One sentence explaining the specific change made."
 }}
+
+COMMIT MESSAGE FORMAT (exact):
+  [AI-AGENT] Fix SYNTAX error in src/validator.py line 8 - add missing colon
+  [AI-AGENT] Fix LOGIC error in src/calculator.py line 22 - change + to * in multiply
+  [AI-AGENT] Fix IMPORT error in src/main.py line 3 - add missing import json
+  [AI-AGENT] Fix LINTING error in src/utils.py line 15 - remove unused import os
+  [AI-AGENT] Fix TYPE_ERROR error in src/app.py line 45 - convert string to int
+  [AI-AGENT] Fix INDENTATION error in src/handler.py line 30 - fix indent level
+
+Return ONLY the JSON object, nothing else.
 """
 
 

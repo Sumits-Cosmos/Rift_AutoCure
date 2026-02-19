@@ -20,46 +20,198 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 CLASSIFICATION_PROMPT = """
-You are an expert CI/CD failure classifier. Analyze the test output below and classify every error.
+You are an expert CI/CD failure classifier for the RIFT 2026 autonomous DevOps healing agent.
+Your job is to analyze raw test output (stdout + stderr) and classify every distinct error into structured categories so the fix-generator agent can apply precise, targeted patches.
 
-Test Output (stdout):
+═══════════════════════════════════════════════════════
+ TEST OUTPUT TO ANALYZE
+═══════════════════════════════════════════════════════
+
+STDOUT:
 {stdout}
 
-Test Output (stderr):
+STDERR:
 {stderr}
 
 Exit Code: {exit_code}
 Language: {language}
-Framework: {framework}
+Test Framework: {framework}
 {iteration_context}
 
-For each error or failure found, output a JSON array. Each item must have:
-- "file": the relative file path where the error occurred (e.g., "src/main.py", "src/utils.js"). Extract from stack traces, error messages, or FAIL lines. Use "unknown" ONLY if truly unidentifiable.
-- "bug_type": EXACTLY one of: DEPENDENCY | STRUCTURAL | SYNTAX | IMPORT | TYPE_ERROR | LOGIC | LINTING | INDENTATION
-- "line": line number as integer (0 if unknown)
-- "description": concise string: "BUG_TYPE error in FILE line LINE → Fix: SUGGESTION"
-- "raw_error": the exact error snippet from the output (max 200 chars)
+═══════════════════════════════════════════════════════
+ BUG TYPE TAXONOMY (use EXACTLY these categories)
+═══════════════════════════════════════════════════════
 
-DEPENDENCY means: a pip/npm package is NOT INSTALLED (ModuleNotFoundError, "Cannot find module" for an npm package).
-The fix is to add the package to requirements.txt or package.json, NOT to edit source code.
+1. LINTING — Code quality / style issues
+   Triggers: unused imports, unused variables, naming violations, dead code
+   Python examples:
+     - "F401 'os' imported but unused"
+     - "W0611: Unused import os"
+     - flake8/pylint warnings
+   JS examples:
+     - "'React' is defined but never used"
+     - "no-unused-vars"
+     - eslint warnings
 
-STRUCTURAL means: ESM/CJS mismatch, missing exports, JSX transform config, vitest globals missing, etc.
-These are CONFIG-level issues, not code bugs.
+2. SYNTAX — Malformed code that won't parse
+   Triggers: missing colons, brackets, semicolons, commas, quotes
+   Python examples:
+     - "SyntaxError: expected ':'"
+     - "SyntaxError: invalid syntax"
+     - "SyntaxError: EOL while scanning string literal"
+     - "SyntaxError: unexpected EOF while parsing"
+   JS examples:
+     - "SyntaxError: Unexpected token"
+     - "SyntaxError: Missing semicolon"
+     - "SyntaxError: Unexpected end of input"
 
-IMPORTANT: Always extract the ACTUAL file path from error output. Look for:
-- "at Object.<anonymous> (path:line:col)"
-- "FAIL path/to/file.test.js"
-- 'File "path/to/file.py", line N'
-- "Cannot find module 'path'" - the importing file AND the missing module
-- pytest style: "path/to/file.py::test_name FAILED"
+3. LOGIC — Code that parses but produces wrong results
+   Triggers: assertion failures, wrong return values, incorrect calculations, flawed conditions, off-by-one
+   Python examples:
+     - "AssertionError: assert 42 == 0"
+     - "AssertionError: expected True but got False"
+     - "FAILED test_calculate - assert add(2, 3) == 5"
+   JS examples:
+     - "Expected: 42, Received: 0"
+     - "expect(result).toBe(5) — received 3"
+     - "AssertionError: expected 'hello' to equal 'world'"
 
-CRITICAL: IGNORE library/framework paths in stack traces. These are NOT user code:
-- starlette/, uvicorn/, django/, flask/, fastapi/
-- site-packages/, node_modules/
-- internal/, <frozen *, <string>
-Always look for the USER'S source file, not framework internals.
+4. TYPE_ERROR — Wrong types at runtime
+   Triggers: type mismatches, calling methods on None/undefined, wrong argument types
+   Python examples:
+     - "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
+     - "TypeError: 'NoneType' object is not subscriptable"
+     - "TypeError: missing 1 required positional argument"
+   JS examples:
+     - "TypeError: Cannot read properties of undefined"
+     - "TypeError: X is not a function"
+     - "TypeError: Cannot convert undefined to object"
 
-Respond ONLY with a valid JSON array. No prose, no markdown fences.
+5. IMPORT — Import/require resolution failures
+   Triggers: missing imports, wrong paths, circular imports
+   Python examples:
+     - "ImportError: cannot import name 'process_data' from 'utils'"
+     - "NameError: name 'json' is not defined" (forgot `import json`)
+   JS examples:
+     - "Cannot find module './utils'" (wrong relative path)
+     - "Module not found: Can't resolve 'lodash'" (might actually be DEPENDENCY)
+   IMPORTANT: Distinguish from DEPENDENCY — IMPORT means the module EXISTS in the project
+   but the import statement is wrong. DEPENDENCY means the pip/npm PACKAGE is not installed.
+
+6. INDENTATION — Whitespace structure errors (mostly Python)
+   Triggers: wrong indentation levels, mixed tabs/spaces
+   Python examples:
+     - "IndentationError: unexpected indent"
+     - "IndentationError: expected an indented block"
+     - "TabError: inconsistent use of tabs and spaces"
+   JS: Rare, but possible in YAML configs or template literals
+
+7. DEPENDENCY — Missing pip/npm package (NOT installed at all)
+   Triggers: ModuleNotFoundError (Python), "Cannot find module" for an npm package
+   Python examples:
+     - "ModuleNotFoundError: No module named 'flask'"
+     - "ModuleNotFoundError: No module named 'pydantic'"
+   JS examples:
+     - "Cannot find module 'express'" (an npm package, not a local file)
+   Fix: Add to requirements.txt / package.json — NOT a code edit.
+
+8. STRUCTURAL — Config-level issues, not code bugs
+   Triggers: ESM/CJS mismatch, missing exports, JSX transform, vitest globals
+   Examples:
+     - "Cannot use import statement outside a module"
+     - "ReferenceError: describe is not defined" (vitest globals missing)
+     - "SyntaxError: Unexpected token '<'" (JSX not configured)
+   Fix: Config file edits (package.json, vitest.config.js, etc.)
+
+═══════════════════════════════════════════════════════
+ FILE PATH EXTRACTION RULES
+═══════════════════════════════════════════════════════
+
+ALWAYS extract the actual USER source file path from the error output. Look for these patterns:
+
+Python:
+  - 'File "src/utils.py", line 15'  →  file = "src/utils.py", line = 15
+  - 'src/calculator.py::test_add FAILED'  →  file = "src/calculator.py"
+  - Traceback File lines — use the LAST non-library File entry
+
+JavaScript / Node:
+  - 'FAIL src/utils.test.js'  →  file = "src/utils.test.js"
+  - 'at Object.<anonymous> (src/main.js:42:5)'  →  file = "src/main.js", line = 42
+  - '❌ src/validator.test.ts'  →  file = "src/validator.test.ts"
+
+⚠️ CRITICAL: NEVER report library/framework paths as the error file:
+  - SKIP: site-packages/, node_modules/, internal/, starlette/, uvicorn/,
+    django/, flask/, fastapi/, werkzeug/, pydantic/, _pytest/, pluggy/,
+    <frozen *, <string>, <module>
+  - Walk BACKWARDS through the stack trace to find the first USER code file.
+
+═══════════════════════════════════════════════════════
+ ROOT-CAUSE ANALYSIS GUIDELINES
+═══════════════════════════════════════════════════════
+
+- If you see BOTH a NameError and a traceback pointing to a user file with a missing import,
+  classify as IMPORT (not LOGIC). The root cause is the missing import statement.
+
+- If you see ModuleNotFoundError for a KNOWN pip/npm package (flask, express, numpy, etc.),
+  classify as DEPENDENCY. The fix is adding to requirements.txt, not editing code.
+
+- If you see "Cannot use import statement outside a module", classify as STRUCTURAL even
+  though it says "import" — it's a module system config issue.
+
+- If tests fail with assertion errors but the test code is correct, the bug is
+  LOGIC in the SOURCE file (not the test file). Report the source file, not the test file.
+
+- If multiple errors exist, classify ALL of them. Report each one separately.
+  Prioritize: DEPENDENCY > STRUCTURAL > IMPORT > SYNTAX > INDENTATION > TYPE_ERROR > LOGIC > LINTING
+
+═══════════════════════════════════════════════════════
+ RESPONSE FORMAT
+═══════════════════════════════════════════════════════
+
+Return a JSON array. Each item MUST have ALL of these fields:
+
+[
+  {{
+    "file": "src/utils.py",
+    "bug_type": "LINTING",
+    "line": 15,
+    "description": "LINTING error in src/utils.py line 15 → Fix: remove the unused import 'os'",
+    "raw_error": "F401 'os' imported but unused"
+  }},
+  {{
+    "file": "src/validator.py",
+    "bug_type": "SYNTAX",
+    "line": 8,
+    "description": "SYNTAX error in src/validator.py line 8 → Fix: add the missing colon at end of function definition",
+    "raw_error": "SyntaxError: expected ':'"
+  }},
+  {{
+    "file": "src/calculator.py",
+    "bug_type": "LOGIC",
+    "line": 22,
+    "description": "LOGIC error in src/calculator.py line 22 → Fix: change '+' operator to '*' in multiply function",
+    "raw_error": "AssertionError: assert multiply(3, 4) == 12, got 7"
+  }},
+  {{
+    "file": "src/app.py",
+    "bug_type": "TYPE_ERROR",
+    "line": 45,
+    "description": "TYPE_ERROR error in src/app.py line 45 → Fix: convert string argument to int before arithmetic operation",
+    "raw_error": "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
+  }},
+  {{
+    "file": "src/main.py",
+    "bug_type": "IMPORT",
+    "line": 3,
+    "description": "IMPORT error in src/main.py line 3 → Fix: add 'import json' at the top of the file",
+    "raw_error": "NameError: name 'json' is not defined"
+  }}
+]
+
+The "description" field MUST follow EXACTLY this format:
+  "BUG_TYPE error in FILE line LINE → Fix: SUGGESTION"
+
+Respond ONLY with a valid JSON array. No prose, no markdown fences, no explanation.
 """
 
 # Paths that belong to libraries/frameworks — never try to fix these

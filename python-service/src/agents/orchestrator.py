@@ -136,6 +136,7 @@ class OrchestratorAgent:
                 state = self.runner.run(state)
 
                 # b) Short-circuit only if tests PASSED
+                # b) Short-circuit only if tests PASSED
                 if state.test_exit_code == 0:
                     state.final_status = "PASSED"
                     self._log("✅ All tests passed!")
@@ -146,21 +147,6 @@ class OrchestratorAgent:
                     state.total_failures = 0
                     state.total_fixes = 0
                     state.record_iteration()
-                    
-                    # ─── Step 5: Post-Success Actions ──────────────────────────
-                    # 1. Push to remote
-                    self._log("Pushing fixed code to remote repository...")
-                    self._git_push(state)
-                    self._log(f"Git push: {getattr(state, 'git_push_status', 'unknown')}")
-                    
-                    # 2. Deploy
-                    self._log("Attempting deployment...")
-                    self._deploy_container(state)
-                    if hasattr(state, 'deployment_url') and state.deployment_url and not state.deployment_url.startswith('Failed'):
-                        self._log(f"✅ Deployed at {state.deployment_url}")
-                    else:
-                        self._log("⚠ Deployment skipped or failed", "warn")
-
                     break
 
                 # Log raw output to help debugging (guard against None)
@@ -222,6 +208,22 @@ class OrchestratorAgent:
             else:
                 # while-else: loop exhausted without break
                 state.final_status = "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
+
+            # ─── Post-Loop Actions (ALWAYS RUN) ──────────────────────────────
+            
+            # 1. Push to remote (even if failed)
+            self._log("Pushing code state to remote repository (regardless of outcome)...")
+            self._git_push(state)
+            self._log(f"Git push: {getattr(state, 'git_push_status', 'unknown')}")
+            
+            # 2. Deploy (attempt even if failed)
+            self._log("Attempting deployment (user request: deploy even if tests fail)...")
+            self._deploy_container(state)
+            
+            if hasattr(state, 'deployment_url') and state.deployment_url and not state.deployment_url.startswith('Failed'):
+                self._log(f"✅ Deployed at {state.deployment_url}")
+            else:
+                self._log(f"⚠ Deployment status: {getattr(state, 'deployment_url', 'Not attempted')}", "warn")
 
         except Exception as e:
             logger.exception(f"[OrchestratorAgent] Unhandled error: {e}")
