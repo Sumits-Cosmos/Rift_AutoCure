@@ -12,9 +12,9 @@ import os
 import re
 import json
 import logging
-import google.generativeai as genai
 from dotenv import load_dotenv
 from .shared_state import SharedState
+from ..llm.ollama_client import get_client as get_ollama_client
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -74,16 +74,14 @@ LIBRARY_PATH_FRAGMENTS = [
 
 
 class FailureClassifierAgent:
-    """Classifies test failures using Gemini LLM with improved regex fallback."""
+    """Classifies test failures using Ollama LLM with improved regex fallback."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
+        self.llm = get_ollama_client()
+        if self.llm.is_available():
+            logger.info(f"[FailureClassifierAgent] Using Ollama model: {self.llm.model}")
         else:
-            self.model = None
-            logger.warning("[FailureClassifierAgent] No Gemini API key - using regex fallback.")
+            logger.warning("[FailureClassifierAgent] Ollama not available — using regex fallback.")
 
     def run(self, state: SharedState) -> SharedState:
         if state.test_exit_code == 0:
@@ -97,8 +95,37 @@ class FailureClassifierAgent:
         combined = f"{stdout}\n{stderr}"
         logger.info(f"[FailureClassifierAgent] Classifying failures from output ({len(combined)} chars)...")
 
+        # ── Early detection: network errors (unfixable in code) ──
+        network_patterns = ["EAI_AGAIN", "ENOTFOUND", "ENETUNREACH", "ECONNREFUSED",
+                            "getaddrinfo", "network timeout", "ETIMEDOUT"]
+        network_hit = any(pat in combined for pat in network_patterns)
+        if network_hit:
+            # Extract the failing package/registry from the error
+            npm_match = re.search(r'request to (\S+) failed', combined)
+            target = npm_match.group(1) if npm_match else "npm registry"
+            logger.warning(
+                f"[FailureClassifierAgent] ⚠️ NETWORK error detected — cannot reach {target}. "
+                f"Docker containers run with --network=none. Packages must be installed during docker build."
+            )
+            # Still try to classify real errors, but add a network failure
+            # so the fix generator can attempt to install deps at build time
+            failures = [{
+                "file": "package.json",
+                "bug_type": "DEPENDENCY",
+                "line": 0,
+                "description": f"Network error: cannot reach {target}. Test framework may not be installed. "
+                              f"Ensure jest/vitest is in package.json devDependencies.",
+                "raw_error": combined[:500],
+            }]
+            state.classified_failures = failures
+            state.total_failures = len(failures)
+            logger.info(f"[FailureClassifierAgent] Classified {len(failures)} failure(s).")
+            for f in failures:
+                logger.info(f"  → [{f.get('bug_type')}] {f.get('file', '?')}:{f.get('line', 0)} — {f.get('description', '')[:80]}")
+            return state
+
         failures = []
-        if self.model:
+        if self.llm.is_available():
             failures = self._classify_with_llm(state)
 
         if not failures:
@@ -110,6 +137,20 @@ class FailureClassifierAgent:
 
         # Filter out library paths — never try to fix framework internals
         failures = [f for f in failures if not self._is_library_path(f.get("file", ""))]
+
+        # Strip Docker /app/ prefix from file paths — the LLM and regex
+        # often return container-internal paths like /app/src/utils.py
+        for f in failures:
+            fp = f.get("file", "")
+            if fp.startswith("/app/"):
+                f["file"] = fp[5:]  # strip '/app/'
+
+        # Filter out system/infra paths that cannot be fixed
+        # (npm logs, /root/, /usr/, temp dirs, etc.)
+        system_prefixes = ("/root/", "/usr/", "/tmp/", "/var/", "/etc/")
+        failures = [f for f in failures
+                    if not any(f.get("file", "").startswith(p) for p in system_prefixes)
+                    and not f.get("file", "").endswith("-debug-0.log")]
 
         state.classified_failures = failures
         state.total_failures = len(failures)
@@ -142,33 +183,35 @@ class FailureClassifierAgent:
             iteration_context=iter_ctx,
         )
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-            parsed = json.loads(text)
+            text = self.llm.generate(prompt, json_mode=True, temperature=0.1)
+            if not text:
+                logger.warning("[FailureClassifierAgent] LLM returned empty, falling back to regex.")
+                return []
+            
+            # Robust JSON extraction for smaller models
+            parsed = self._extract_json_from_response(text)
             if isinstance(parsed, list) and len(parsed) > 0:
                 return parsed
-            logger.warning("[FailureClassifierAgent] LLM returned empty list, using regex fallback.")
+            
+            # Retry with shorter, more forceful prompt
+            logger.warning("[FailureClassifierAgent] First classification attempt failed, retrying...")
+            retry_prompt = (
+                f"Analyze this test output and return a JSON array of failures.\n\n"
+                f"STDOUT:\n{(state.test_stdout or '')[:3000]}\n\n"
+                f"STDERR:\n{(state.test_stderr or '')[:3000]}\n\n"
+                f"Return a JSON array where each element has: "
+                f"\"file\" (path), \"bug_type\" (SYNTAX/IMPORT/LOGIC/TYPE_ERROR), "
+                f"\"line\" (number), \"description\" (one sentence), \"raw_error\" (error text)."
+            )
+            text2 = self.llm.generate(retry_prompt, json_mode=True, temperature=0.1)
+            if text2:
+                parsed2 = self._extract_json_from_response(text2)
+                if isinstance(parsed2, list) and len(parsed2) > 0:
+                    return parsed2
+            
+            logger.warning("[FailureClassifierAgent] LLM returned no usable results after retry, using regex fallback.")
         except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   The API key has hit its request quota."
-                    "\n   Classification will use regex fallback for this iteration."
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Classification falling back to regex."
-                    "\n" + "=" * 60 + "\033[0m"
-                )
-            else:
-                logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
+            logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
         return []
 
     def _classify_with_regex(self, state: SharedState):
@@ -333,10 +376,36 @@ class FailureClassifierAgent:
                     # Walk backwards through File matches, skip library paths
                     for fl in reversed(fl_matches):
                         fpath = fl.group(1)
+                        # Strip Docker container /app/ prefix
+                        if fpath.startswith("/app/"):
+                            fpath = fpath[5:]
                         if not self._is_library_path(fpath):
                             file_name = fpath
                             line_num = int(fl.group(2))
                             break
+                
+                # If still unknown, try to find the source file from pytest FAILED lines
+                if file_name == "unknown":
+                    # Look for "tests/test_suite.py::test_name FAILED" above the error
+                    fail_match = re.search(
+                        r'([\w./\\-]+\.py)::[\w:]+\s+FAILED', search_region
+                    )
+                    if fail_match:
+                        # We know the test file — but the real bug is in SOURCE code
+                        # Try to find source file references in the error block
+                        err_block = combined[max(0, m.start() - 500):m.end() + 200]
+                        src_file = re.search(
+                            r'(?:in|from)\s+(?:/app/)?(\S+\.py)', err_block
+                        )
+                        if src_file:
+                            fpath = src_file.group(1)
+                            if fpath.startswith("/app/"):
+                                fpath = fpath[5:]
+                            file_name = fpath
+                        else:
+                            # Fall back to the test file — at least the agent can read it
+                            file_name = fail_match.group(1).replace("\\", "/")
+                
                 failures.append({
                     "file": file_name,
                     "bug_type": bug_type,
@@ -372,6 +441,156 @@ class FailureClassifierAgent:
                 seen.add(key)
                 unique.append(f)
         return unique[:10]
+
+    # ── Response parsing helper ────────────────────────────────────────────────
+
+    def _extract_json_from_response(self, text: str):
+        """Robustly extract a JSON array/object from an LLM response.
+        
+        Handles: single objects, arrays, objects wrapping arrays,
+        markdown fences, and malformed JSON from smaller models.
+        Always returns a list (or empty list on failure).
+        """
+        text = text.strip()
+
+        # Strategy 1: Direct parse
+        try:
+            parsed = json.loads(text)
+            return self._normalize_to_list(parsed)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Strip markdown code fences and retry
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', text, flags=re.MULTILINE)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned, flags=re.MULTILINE)
+        cleaned = cleaned.strip()
+        try:
+            parsed = json.loads(cleaned)
+            return self._normalize_to_list(parsed)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 3: Find outermost JSON structure (array or object)
+        # Try array first
+        bracket_start = text.find('[')
+        if bracket_start >= 0:
+            depth = 0
+            for i in range(bracket_start, len(text)):
+                if text[i] == '[':
+                    depth += 1
+                elif text[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[bracket_start:i + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                            return self._normalize_to_list(parsed)
+                        except json.JSONDecodeError:
+                            pass
+                        break
+
+        # Try object
+        brace_start = text.find('{')
+        if brace_start >= 0:
+            depth = 0
+            for i in range(brace_start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[brace_start:i + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                            return self._normalize_to_list(parsed)
+                        except json.JSONDecodeError:
+                            pass
+                        break
+
+        # Strategy 4: JSON repair — fix common small-model issues
+        repaired = self._repair_json(text)
+        if repaired is not None:
+            return self._normalize_to_list(repaired)
+
+        logger.warning(f"[FailureClassifierAgent] All JSON extraction strategies failed. "
+                       f"Response preview: {text[:200]}")
+        return []
+
+    def _normalize_to_list(self, parsed) -> list:
+        """Normalize any parsed JSON into a list of failure dicts.
+        
+        Handles:
+          - list of dicts: return as-is
+          - single dict with 'file'/'bug_type': wrap in list
+          - dict containing an array value: extract and return the array
+        """
+        if isinstance(parsed, list):
+            # Filter to only dicts that look like failure records
+            return [item for item in parsed if isinstance(item, dict) and 
+                    ("file" in item or "bug_type" in item)]
+        
+        if isinstance(parsed, dict):
+            # Single failure object → wrap in list
+            if "file" in parsed or "bug_type" in parsed:
+                return [parsed]
+            
+            # Object wrapping an array (e.g., {"failures": [...]})
+            for val in parsed.values():
+                if isinstance(val, list) and len(val) > 0:
+                    items = [item for item in val if isinstance(item, dict) and 
+                             ("file" in item or "bug_type" in item)]
+                    if items:
+                        return items
+        
+        return []
+
+    def _repair_json(self, text: str):
+        """Attempt to repair malformed JSON from small models."""
+        # Find the start of JSON
+        start = -1
+        for ch in ['[', '{']:
+            idx = text.find(ch)
+            if idx >= 0 and (start < 0 or idx < start):
+                start = idx
+        if start < 0:
+            return None
+
+        raw = text[start:]
+        # Strip trailing markdown fences
+        raw = re.sub(r'\n?```\s*$', '', raw)
+
+        # Fix trailing commas before } or ]
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
+
+        # Try to close unclosed structures
+        open_braces = raw.count('{') - raw.count('}')
+        open_brackets = raw.count('[') - raw.count(']')
+
+        # Truncate at last complete object if strings are unclosed
+        # Find the last valid closing brace/bracket
+        if open_braces > 0 or open_brackets > 0:
+            # Try to find the last complete JSON object
+            last_close = max(raw.rfind('}'), raw.rfind(']'))
+            if last_close > 0:
+                attempt = raw[:last_close + 1]
+                # Balance remaining
+                ob = attempt.count('{') - attempt.count('}')
+                obr = attempt.count('[') - attempt.count(']')
+                attempt += '}' * max(0, ob) + ']' * max(0, obr)
+                try:
+                    return json.loads(attempt)
+                except json.JSONDecodeError:
+                    pass
+
+            # Last resort: close everything
+            raw += '"' if raw.count('"') % 2 != 0 else ''
+            raw += '}' * max(0, open_braces)
+            raw += ']' * max(0, open_brackets)
+
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
 
     # ── Helper methods ──────────────────────────────────────────────────────
 

@@ -31,6 +31,10 @@ NODE_DOCKERFILE_TEMPLATE = """FROM node:20-slim
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps 2>/dev/null || true
+# Install test frameworks during build — container runs with --network=none
+# so npx cannot download packages at runtime
+RUN npx jest --version 2>/dev/null || npm install --save-dev jest 2>/dev/null || true
+RUN npx vitest --version 2>/dev/null || npm install --save-dev vitest 2>/dev/null || true
 COPY . .
 CMD {cmd_json}
 """
@@ -83,13 +87,17 @@ class TestRunnerAgent:
         repo_path = state.repo_path
         language = state.language
         test_command = state.test_command
-        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language} | Iteration: {state.current_iteration}")
+        iteration = state.current_iteration
+        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language} | Iteration: {iteration}")
 
         build_context = tempfile.mkdtemp(prefix="cicd_heal_")
         try:
             # Copy repo files into build context
             repo_dest = os.path.join(build_context, "app_src")
+            # Use dirs_exist_ok=True to get the LATEST version of files
+            # This is crucial for picking up fixes applied in prior iterations
             shutil.copytree(repo_path, repo_dest, dirs_exist_ok=True)
+            logger.info(f"[TestRunnerAgent] Copied repo files from {repo_path} to build context.")
 
             # Generate .dockerignore for faster builds
             dockerignore_path = os.path.join(repo_dest, ".dockerignore")
@@ -106,7 +114,7 @@ class TestRunnerAgent:
             # ── Docker build strategy ──
             if not state.docker_image_built:
                 # First iteration: full build (installs deps)
-                build_ok, build_stdout, build_stderr = self._docker_build(repo_dest, self.BASE_IMAGE_TAG)
+                build_ok, build_stdout, build_stderr = self._docker_build(repo_dest, self.BASE_IMAGE_TAG, use_cache=True)
                 if not build_ok:
                     state.test_exit_code = 1
                     state.test_stdout = build_stdout or ""
@@ -116,17 +124,18 @@ class TestRunnerAgent:
                 state.docker_image_built = True
                 logger.info("[TestRunnerAgent] ✅ Base Docker image built successfully.")
             else:
-                # Subsequent iterations: rebuild but with Docker layer cache
-                # The dep-install layers are cached, only COPY . . layer rebuilds
+                # Subsequent iterations: rebuild WITHOUT Docker cache layer
+                # This ensures COPY . . gets the updated fixed files
+                logger.info("[TestRunnerAgent] Rebuilding Docker image to pick up fixes from prior iteration...")
                 build_ok, build_stdout, build_stderr = self._docker_build(
-                    repo_dest, self.BASE_IMAGE_TAG
+                    repo_dest, self.BASE_IMAGE_TAG, use_cache=False
                 )
                 if not build_ok:
                     state.test_exit_code = 1
                     state.test_stdout = build_stdout or ""
                     state.test_stderr = f"[Docker Rebuild Failed]\n{build_stderr}"
                     return state
-                logger.info("[TestRunnerAgent] ♻️ Docker image rebuilt (cached deps).")
+                logger.info("[TestRunnerAgent] ♻️ Docker image rebuilt with updated files.")
 
             # Run tests
             run_ok, run_stdout, run_stderr, exit_code = self._docker_run()
@@ -163,9 +172,11 @@ class TestRunnerAgent:
             cmd_args = ", ".join(f'"{p}"' for p in parts)
             return PYTHON_DOCKERFILE_TEMPLATE.format(cmd_args=cmd_args)
 
-    def _docker_build(self, build_context_path: str, tag: str):
+    def _docker_build(self, build_context_path: str, tag: str, use_cache: bool = True):
+        cache_flag = [] if use_cache else ["--no-cache"]
         cmd = [
             "docker", "build",
+            *cache_flag,
             "-t", tag,
             "-f", os.path.join(build_context_path, "Dockerfile.cicd"),
             build_context_path

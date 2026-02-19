@@ -1,77 +1,34 @@
 """
-FixGeneratorAgent: Uses the Gemini LLM to generate minimal code patches
+FixGeneratorAgent: Uses the Ollama LLM (local) to generate minimal code patches
 for classified failures and commits them to the local branch.
 
 v2: Context-aware prompts (test output + prior fixes), deterministic
     structural fix handlers, syntax validation gate, cumulative tracking.
+v3: Migrated from Gemini to Ollama local inference.
 """
 import os
 import re
 import json
 import logging
 import subprocess
-import google.generativeai as genai
 from dotenv import load_dotenv
 from .shared_state import SharedState, FixRecord
+from ..llm.ollama_client import get_client as get_ollama_client
+from ..ollama_generator import build_healing_prompt
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-FIX_PROMPT = """
-You are an expert software engineer. You will be given a code file and a classified bug.
-Your task is to generate the minimal fix required to resolve the bug.
-
-File: {file}
-Bug Type: {bug_type}
-Line Number: {line}
-Error Description: {description}
-Raw Error: {raw_error}
-
-Current File Content:
-```
-{file_content}
-```
-
-Test Output (relevant snippet):
-```
-{test_output_snippet}
-```
-{prior_fix_context}
-
-Instructions:
-1. Return ONLY a JSON object with the following fields:
-   - "fixed_content": the complete fixed file content as a string
-   - "commit_message": a git commit message starting with "[AI-AGENT]" describing the fix
-   - "explanation": one sentence explaining the change
-2. Make MINIMAL changes — only fix the identified bug.
-3. Preserve all indentation, formatting, and coding style.
-4. Do NOT add comments unless they were already there.
-5. Do NOT restructure the file or change unrelated code.
-6. If the file is a test file, fix the test — do NOT rewrite it from scratch.
-7. Return ONLY the JSON object — no markdown, no prose.
-
-Example response:
-{{
-  "fixed_content": "...",
-  "commit_message": "[AI-AGENT] Fix SYNTAX error in calculator.py line 8 - add colon",
-  "explanation": "Added missing colon at end of function definition on line 8."
-}}
-"""
-
 
 class FixGeneratorAgent:
-    """Generates and applies code fixes using Gemini LLM with structural handlers."""
+    """Generates and applies code fixes using Ollama LLM with structural handlers."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            self.model = genai.GenerativeModel(model_name)
-            logger.info(f"[FixGeneratorAgent] Using Gemini model: {model_name}")
+        self.llm = get_ollama_client()
+        if self.llm.is_available():
+            logger.info(f"[FixGeneratorAgent] Using Ollama model: {self.llm.model}")
         else:
-            self.model = None
-            logger.warning("[FixGeneratorAgent] No Gemini API key - fixes will be skipped.")
+            logger.warning("[FixGeneratorAgent] Ollama not available — LLM fixes will be skipped.")
 
     def run(self, state: SharedState) -> SharedState:
         if not state.classified_failures:
@@ -85,6 +42,16 @@ class FixGeneratorAgent:
 
         for failure in state.classified_failures:
             bug_type = failure.get("bug_type", "")
+            file_path = failure.get("file", "")
+            line_num = failure.get("line", 0)
+            
+            # DEDUPLICATION: Check if we already attempted this exact fix
+            if self._is_fix_already_attempted(state, file_path, bug_type, line_num):
+                logger.warning(
+                    f"[FixGeneratorAgent] Skipping {bug_type} fix for {file_path}:{line_num} "
+                    f"— already attempted in prior iterations. Preventing oscillation."
+                )
+                continue
 
             # Try DEPENDENCY fix first (deterministic — add to requirements.txt)
             if bug_type == "DEPENDENCY":
@@ -102,8 +69,8 @@ class FixGeneratorAgent:
                     fixes_applied.append(fix_record)
                     continue
 
-            if not self.model:
-                logger.warning("[FixGeneratorAgent] Skipping LLM fix - no model available.")
+            if not self.llm.is_available():
+                logger.warning("[FixGeneratorAgent] Skipping LLM fix — Ollama not available.")
                 continue
 
             fix_record = self._fix_failure(failure, repo_path, state)
@@ -118,6 +85,19 @@ class FixGeneratorAgent:
         state.cumulative_fixes = len(state.all_fixes_applied)
         logger.info(f"[FixGeneratorAgent] Applied {len(fixes_applied)} fix(es) this iteration, {state.cumulative_fixes} total.")
         return state
+
+    def _is_fix_already_attempted(self, state: SharedState, file_path: str, bug_type: str, line_num: int) -> bool:
+        """Check if this exact fix has already been attempted in prior iterations.
+        
+        Returns True if the same file+bug_type+line combination was already fixed
+        before, indicating we should skip it to prevent oscillation loops.
+        """
+        for prior_fix in state.all_fixes_applied:
+            if (prior_fix.file == file_path and 
+                prior_fix.bug_type == bug_type and 
+                prior_fix.line == line_num):
+                return True
+        return False
     # ── Dependency fixes (deterministic — patch requirements.txt) ────────────
 
     # Common Python module → pip package name mapping
@@ -141,13 +121,42 @@ class FixGeneratorAgent:
     }
 
     def _fix_missing_dependency(self, failure: dict, repo_path: str, state: SharedState):
-        """Fix DEPENDENCY errors by adding missing package to requirements.txt.
+        """Fix DEPENDENCY errors by adding missing package to requirements/package.json.
         
         This is deterministic — no LLM needed. The error message tells us
         exactly which module is missing, so we add it to the dependency file.
         """
         raw = failure.get("raw_error", "") + " " + failure.get("description", "")
-        
+        file_target = failure.get("file", "")
+
+        # ── Node.js: handle network/npm dependency errors ──
+        if state.language == "node" or file_target == "package.json":
+            # Try to extract package name from npm errors
+            # Patterns: "Cannot find module 'xxx'", "jest", "vitest", etc.
+            npm_match = re.search(r"Cannot find module '([^']+)'", raw)
+            if npm_match:
+                package = npm_match.group(1).split("/")[0]  # @scope/pkg → @scope
+                if package.startswith("."):
+                    return None  # relative import, not a package issue
+                return self._add_to_package_json(repo_path, package, dev=True)
+
+            # Check if error mentions a known test framework
+            test_frameworks = ["jest", "vitest", "mocha", "jasmine", "@testing-library/react",
+                              "@testing-library/jest-dom"]
+            desc_lower = raw.lower()
+            for fw in test_frameworks:
+                if fw in desc_lower:
+                    return self._add_to_package_json(repo_path, fw, dev=True)
+
+            # Generic npm module extraction
+            m = re.search(r"Module not found.*'([^']+)'", raw)
+            if m:
+                return self._add_to_package_json(repo_path, m.group(1).split("/")[0], dev=True)
+
+            logger.warning("[FixGeneratorAgent] DEPENDENCY: Could not extract npm package from error.")
+            return None
+
+        # ── Python: handle "No module named" errors ──
         # Extract module name from "No module named 'xxx'" or "No module named 'xxx.yyy'"
         m = re.search(r"No module named '([^']+)'", raw)
         if not m:
@@ -165,12 +174,7 @@ class FixGeneratorAgent:
         
         logger.info(f"[FixGeneratorAgent] DEPENDENCY fix: missing module '{module_name}' → pip package '{pip_name}'")
 
-        if state.language == "python":
-            return self._add_to_requirements_txt(repo_path, pip_name, top_module)
-        elif state.language == "node":
-            return self._add_to_package_json(repo_path, pip_name)
-        
-        return None
+        return self._add_to_requirements_txt(repo_path, pip_name, top_module)
 
     def _add_to_requirements_txt(self, repo_path: str, pip_name: str, module_name: str):
         """Add a pip package to requirements.txt."""
@@ -206,8 +210,8 @@ class FixGeneratorAgent:
             status="Fixed"
         )
 
-    def _add_to_package_json(self, repo_path: str, package_name: str):
-        """Add an npm package to package.json dependencies."""
+    def _add_to_package_json(self, repo_path: str, package_name: str, dev: bool = False):
+        """Add an npm package to package.json dependencies or devDependencies."""
         pkg_path = os.path.join(repo_path, "package.json")
         if not os.path.exists(pkg_path):
             return None
@@ -222,10 +226,11 @@ class FixGeneratorAgent:
                 logger.info(f"[FixGeneratorAgent] '{package_name}' already in package.json.")
                 return None
             
-            # Add to dependencies
-            if "dependencies" not in data:
-                data["dependencies"] = {}
-            data["dependencies"][package_name] = "*"
+            # Add to devDependencies for test frameworks, dependencies for everything else
+            target_key = "devDependencies" if dev else "dependencies"
+            if target_key not in data:
+                data[target_key] = {}
+            data[target_key][package_name] = "*"
             
             with open(pkg_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -412,6 +417,30 @@ class FixGeneratorAgent:
                     logger.error(f"[FixGeneratorAgent] JSX fix failed: {e}")
         return None
 
+    # ── File tree helper ───────────────────────────────────────────────────────
+    
+    def _get_repo_file_tree(self, repo_path: str, max_files: int = 80) -> str:
+        """Get a compact file tree of the repo for LLM context.
+        
+        Helps the LLM know which files actually exist — critical for
+        IMPORT error fixes where the model needs to know correct paths.
+        """
+        skip_dirs = {
+            "node_modules", ".git", "__pycache__", ".next", "dist", "build",
+            ".venv", "venv", "coverage", ".nyc_output", ".cache",
+        }
+        files = []
+        for root, dirs, filenames in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fname in filenames:
+                rel = os.path.relpath(os.path.join(root, fname), repo_path).replace("\\", "/")
+                files.append(rel)
+                if len(files) >= max_files:
+                    break
+            if len(files) >= max_files:
+                break
+        return "\n".join(f"  {f}" for f in sorted(files))
+
     # ── LLM-based fix generation ──────────────────────────────────────────────
 
     def _fix_failure(self, failure: dict, repo_path: str, state: SharedState):
@@ -458,47 +487,60 @@ class FixGeneratorAgent:
         else:
             test_snippet = combined[:1000]
 
-        prompt = FIX_PROMPT.format(
+        # Build file tree context — always include for visibility
+        bug_type = failure.get("bug_type", "")
+        repo_tree = self._get_repo_file_tree(repo_path)
+
+        # Use the centralized healing prompt from ollama_generator
+        prompt = build_healing_prompt(
             file=file_rel,
-            bug_type=failure.get("bug_type", ""),
+            bug_type=bug_type,
             line=failure.get("line", 0),
             description=failure.get("description", ""),
             raw_error=failure.get("raw_error", ""),
             file_content=content[:8000],
-            test_output_snippet=test_snippet[:2000],
-            prior_fix_context=prior_ctx,
+            test_output=test_snippet[:2000],
+            repo_structure=repo_tree,
+            prior_fixes=prior_ctx or "None",
+            iteration=state.current_iteration,
         )
 
+        # Attempt 1: Use json_mode for guaranteed JSON output
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-            fix_data = json.loads(text)
+            text = self.llm.generate(prompt, json_mode=True, temperature=0.1)
+            if not text:
+                logger.error(f"[FixGeneratorAgent] LLM returned empty for {file_rel}")
+                return None
+            
+            fix_data = self._extract_json_from_response(text)
+            
+            # If json_mode still didn't produce valid fix data, retry with a forceful short prompt
+            if not fix_data or not fix_data.get("fixed_content"):
+                logger.warning(f"[FixGeneratorAgent] First attempt failed for {file_rel}, retrying with simplified prompt...")
+                retry_prompt = (
+                    f"Fix this {bug_type} bug in {file_rel}.\n\n"
+                    f"Error: {failure.get('description', '')}\n\n"
+                    f"Current file content:\n{content[:6000]}\n\n"
+                    f"Return a JSON object with: \"fixed_content\" (the complete fixed file as a string), "
+                    f"\"commit_message\" (starting with [AI-AGENT]), \"explanation\" (one sentence)."
+                )
+                text2 = self.llm.generate(retry_prompt, json_mode=True, temperature=0.1)
+                if text2:
+                    fix_data = self._extract_json_from_response(text2)
+            
+            if not fix_data:
+                logger.error(f"[FixGeneratorAgent] Could not extract JSON fix for {file_rel} after retries")
+                logger.debug(f"[FixGeneratorAgent] Raw LLM response: {text[:500]}")
+                return None
         except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n" + "=" * 60 + "\033[0m"
-                )
-            else:
-                logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
+            logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
             return None
 
-        fixed_content = fix_data.get("fixed_content", "")
+        fixed_content = self._clean_fixed_content(fix_data.get("fixed_content", ""))
         commit_message = fix_data.get("commit_message", f"[AI-AGENT] Fix {failure.get('bug_type')} in {file_rel}")
         explanation = fix_data.get("explanation", "")
         if not fixed_content:
+            logger.warning(f"[FixGeneratorAgent] fixed_content empty after cleaning for {file_rel}")
             return None
 
         # ── Syntax validation gate ──
@@ -524,6 +566,118 @@ class FixGeneratorAgent:
             explanation=explanation,
             status="Fixed"
         )
+
+    # ── Response parsing helpers ───────────────────────────────────────────────
+
+    def _extract_json_from_response(self, text: str) -> dict | None:
+        """Robustly extract a JSON object from an LLM response.
+        
+        Handles common issues with smaller models:
+        - Response wrapped in markdown code fences
+        - Extra text before/after the JSON
+        - Mixed markdown and JSON
+        """
+        text = text.strip()
+
+        # Strategy 1: Direct parse (ideal case)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Strip markdown code fences and retry
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', text, flags=re.MULTILINE)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned, flags=re.MULTILINE)
+        cleaned = cleaned.strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 3: Find the outermost { ... } in the text
+        brace_start = text.find('{')
+        if brace_start >= 0:
+            # Find matching closing brace
+            depth = 0
+            for i in range(brace_start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[brace_start:i + 1]
+                        try:
+                            return json.loads(candidate)
+                        except json.JSONDecodeError:
+                            pass
+                        break
+        # Strategy 4: JSON repair — fix common small-model issues
+        repaired = self._repair_json(text)
+        if repaired is not None:
+            return repaired
+
+        logger.warning(f"[FixGeneratorAgent] All JSON extraction strategies failed. "
+                       f"Response preview: {text[:200]}")
+        return None
+
+    def _clean_fixed_content(self, content: str) -> str:
+        """Clean fixed_content field from LLM response.
+        
+        Smaller models often wrap code in markdown fences even inside JSON:
+        "fixed_content": "```python\\ndef foo():\\n    pass\\n```"
+        
+        This strips those fences to get clean source code.
+        """
+        if not content:
+            return ""
+        
+        # Strip leading/trailing whitespace
+        content = content.strip()
+        
+        # Remove leading markdown code fence: ```python, ```py, ```javascript, etc.
+        content = re.sub(r'^```[a-zA-Z]*\s*\n?', '', content)
+        # Remove trailing fence
+        content = re.sub(r'\n?```\s*$', '', content)
+        
+        return content.strip()
+
+    def _repair_json(self, text: str):
+        """Attempt to repair malformed JSON from small models."""
+        start = -1
+        for ch in ['{', '[']:
+            idx = text.find(ch)
+            if idx >= 0 and (start < 0 or idx < start):
+                start = idx
+        if start < 0:
+            return None
+
+        raw = text[start:]
+        raw = re.sub(r'\n?```\s*$', '', raw)
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
+
+        open_braces = raw.count('{') - raw.count('}')
+        open_brackets = raw.count('[') - raw.count(']')
+
+        if open_braces > 0 or open_brackets > 0:
+            last_close = max(raw.rfind('}'), raw.rfind(']'))
+            if last_close > 0:
+                attempt = raw[:last_close + 1]
+                ob = attempt.count('{') - attempt.count('}')
+                obr = attempt.count('[') - attempt.count(']')
+                attempt += '}' * max(0, ob) + ']' * max(0, obr)
+                try:
+                    return json.loads(attempt)
+                except json.JSONDecodeError:
+                    pass
+
+            raw += '"' if raw.count('"') % 2 != 0 else ''
+            raw += '}' * max(0, open_braces)
+            raw += ']' * max(0, open_brackets)
+
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
 
     # ── Validation ────────────────────────────────────────────────────────────
 

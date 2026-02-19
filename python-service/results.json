@@ -1,24 +1,46 @@
 {
-  "repository": "https://github.com/ukg1911/ci-cd-testing",
-  "branch": "AL_AKJ_AI_Fix",
+  "repository": "https://github.com/ukg1911/test-repo-level-1",
+  "branch": "RIFT_WALE_RIFTY_AI_Fix",
+  "team_name": "rift_wale",
+  "leader_name": "rifty",
   "total_failures": 1,
-  "total_fixes": 0,
+  "total_fixes": 1,
   "iterations_used": 2,
-  "status": "FAILED",
-  "time_taken_seconds": 7.96,
+  "status": "PARTIAL",
+  "time_taken_seconds": 114.05,
   "language": "python",
   "test_framework": "pytest",
   "module_system": "",
-  "fixes": [],
-  "all_fixes": [],
+  "fixes": [
+    {
+      "file": "tests/test_suite.py",
+      "bug_type": "SYNTAX",
+      "line": 2,
+      "commit_message": "[AI-AGENT] Fix SYNTAX \u2014 add colon at the end of function definition in test_suite.py",
+      "explanation": "Syntax error in test_suite.py line 2 \u2192 Fix: Add a colon at the end of the function definition.",
+      "status": "Fixed",
+      "iteration": 1
+    }
+  ],
+  "all_fixes": [
+    {
+      "file": "tests/test_suite.py",
+      "bug_type": "SYNTAX",
+      "line": 2,
+      "commit_message": "[AI-AGENT] Fix SYNTAX \u2014 add colon at the end of function definition in test_suite.py",
+      "explanation": "Syntax error in test_suite.py line 2 \u2192 Fix: Add a colon at the end of the function definition.",
+      "status": "Fixed",
+      "iteration": 1
+    }
+  ],
   "iteration_history": [
     {
       "iteration": 1,
       "exit_code": 2,
       "failure_count": 1,
-      "fix_count": 0,
+      "fix_count": 1,
       "failure_signatures": [
-        "unknown:IMPORT"
+        "tests/test_suite.py:SYNTAX"
       ]
     },
     {
@@ -27,14 +49,20 @@
       "failure_count": 1,
       "fix_count": 0,
       "failure_signatures": [
-        "unknown:IMPORT"
+        "tests/test_suite.py:SYNTAX"
       ]
     }
   ],
   "repeated_failures": [
-    "unknown:IMPORT"
+    "tests/test_suite.py:SYNTAX"
   ],
-  "error": "No progress for 2 consecutive iterations. Applied 0 fix(es) total but 1 failure(s) remain.",
+  "error": null,
   "deployment_url": null,
-  "git_push_status": null
+  "git_push_status": null,
+  "score": {
+    "base_score": 100,
+    "speed_bonus": 10,
+    "efficiency_penalty": 0,
+    "final_score": 110
+  }
 }

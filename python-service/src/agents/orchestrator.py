@@ -480,25 +480,45 @@ class OrchestratorAgent:
                 "failure_signatures": snap.failure_signatures,
             })
 
+        # Calculate score
+        base_score = 100
+        speed_bonus = 10 if elapsed < 300 else 0  # +10 if < 5 minutes
+        # Efficiency penalty: -2 per fix over 20 (to incentivize minimal fixes)
+        efficiency_penalty = max(0, (state.cumulative_fixes - 20) * 2)
+        final_score = base_score + speed_bonus - efficiency_penalty
+
+        # Determine final status
+        final_status = "PASSED" if state.test_exit_code == 0 else (
+            "PARTIAL" if state.cumulative_fixes > 0 else "FAILED"
+        )
+
         result = {
             "repository": state.repo_url,
             "branch": state.branch_name,
+            "team_name": state.team_name,
+            "leader_name": state.leader_name,
             "total_failures": state.total_failures,
             "total_fixes": state.cumulative_fixes,
             "iterations_used": state.current_iteration,
-            "status": state.final_status,
+            "status": final_status,
             "time_taken_seconds": round(elapsed, 2),
             "language": state.language,
             "test_framework": state.test_framework,
             "module_system": state.module_system,
-            "fixes": all_fixes_list,                   # cumulative fixes for frontend
-            "all_fixes": all_fixes_list,               # alias for clarity
-            "iteration_history": iter_history,         # per-iteration breakdown
-            "repeated_failures": state.get_repeated_failures(),
+            "fixes": all_fixes_list,
+            "all_fixes": all_fixes_list,
+            "iteration_history": iter_history,
             "repeated_failures": state.get_repeated_failures(),
             "error": state.error_message,
             "deployment_url": getattr(state, "deployment_url", None),
             "git_push_status": getattr(state, "git_push_status", None),
+            # Score breakdown for dashboard
+            "score": {
+                "base_score": base_score,
+                "speed_bonus": speed_bonus,
+                "efficiency_penalty": efficiency_penalty,
+                "final_score": max(0, final_score),  # Never go below 0
+            }
         }
 
         

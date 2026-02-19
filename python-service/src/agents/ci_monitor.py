@@ -21,7 +21,7 @@ class CIMonitorAgent:
 
         Returns dict with:
           - should_stop (bool)
-          - reason (str): TESTS_PASSED | RETRY_LIMIT_REACHED | NO_PROGRESS | OSCILLATING | CONTINUE
+          - reason (str): TESTS_PASSED | RETRY_LIMIT_REACHED | NO_PROGRESS | OSCILLATING | FIX_NOT_WORKING | CONTINUE
           - metadata (dict): additional context
         """
         iteration = state.current_iteration
@@ -56,20 +56,26 @@ class CIMonitorAgent:
             logger.info("[CIMonitorAgent] ✅ Tests passed — stopping loop.")
             return {"should_stop": True, "reason": "TESTS_PASSED", "metadata": meta}
 
-        # Stop condition 2: Oscillation detected (same failure 3+ iterations)
-        # GUARD: Only check after at least 3 iterations — you need:
-        #   iter1 → see failure, apply fix
-        #   iter2 → same failure back? apply different fix
-        #   iter3 → STILL same failure? → oscillating
-        if iteration >= 3 and state.is_oscillating():
-            repeated = state.get_repeated_failures()
+        # Stop condition 2: Fix was attempted but didn't work (0 fixes + still have failures)
+        # This catches the case where LLM suggested a fix but it didn't resolve the failure
+        if iteration >= 2 and fixes_this_round == 0 and failures_this_round > 0:
+            logger.warning(
+                f"[CIMonitorAgent] ⚠️ No fixes applied this iteration but {failures_this_round} "
+                f"failures remain — suggests LLM fixes are not helping. Stopping."
+            )
+            return {"should_stop": True, "reason": "FIX_NOT_WORKING", "metadata": meta}
+
+        # Stop condition 3: Oscillation detected (same failure 2+ iterations with fix attempts)
+        # IMPROVED: Check after iteration 2 instead of 3 for faster detection
+        if iteration >= 2 and state.is_oscillating(threshold=2):
+            repeated = state.get_repeated_failures(threshold=2)
             logger.warning(
                 f"[CIMonitorAgent] 🔄 Oscillation detected — same failures recurring "
-                f"across {iteration} iterations: {repeated}. Stopping to prevent infinite loop."
+                f"for 2+ iterations: {repeated}. Fix attempts not working. Stopping."
             )
             return {"should_stop": True, "reason": "OSCILLATING", "metadata": meta}
 
-        # Stop condition 3: No progress (2 consecutive iterations with 0 fixes)
+        # Stop condition 4: No progress (2 consecutive iterations with 0 fixes)
         # Only meaningful after at least 3 iterations (give the system a fair chance)
         if state.last_n_had_no_progress(2) and iteration >= 3:
             logger.warning(
@@ -77,7 +83,7 @@ class CIMonitorAgent:
             )
             return {"should_stop": True, "reason": "NO_PROGRESS", "metadata": meta}
 
-        # Stop condition 4: Retry limit reached
+        # Stop condition 5: Retry limit reached
         if iteration >= limit:
             logger.warning(f"[CIMonitorAgent] ⚠️ Retry limit ({limit}) reached — stopping loop.")
             return {"should_stop": True, "reason": "RETRY_LIMIT_REACHED", "metadata": meta}
