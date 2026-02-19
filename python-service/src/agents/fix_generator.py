@@ -38,6 +38,9 @@ Test Output (relevant snippet):
 ```
 {prior_fix_context}
 
+Repository file tree:
+{file_tree}
+
 Instructions:
 1. Return ONLY a JSON object with the following fields:
    - "fixed_content": the complete fixed file content as a string
@@ -47,8 +50,10 @@ Instructions:
 3. Preserve all indentation, formatting, and coding style.
 4. Do NOT add comments unless they were already there.
 5. Do NOT restructure the file or change unrelated code.
-6. If the file is a test file, fix the test — do NOT rewrite it from scratch.
-7. Return ONLY the JSON object — no markdown, no prose.
+6. NEVER modify test assertions or expected values. Tests define the specification.
+7. If a function returns undefined/wrong value, fix the IMPLEMENTATION, not the test.
+8. Common implementation bugs: missing return statement, wrong variable name, .length() vs .length, wrong import path.
+9. Return ONLY the JSON object — no markdown, no prose.
 
 Example response:
 {{
@@ -57,6 +62,66 @@ Example response:
   "explanation": "Added missing colon at end of function definition on line 8."
 }}
 """
+
+# Prompt used when redirecting a test-file LOGIC error to the implementation file
+IMPL_FIX_PROMPT = """
+You are an expert software engineer. A test is failing because the implementation has a bug.
+You must fix the IMPLEMENTATION file, NOT the test file.
+
+Implementation File: {impl_file}
+Bug Type: {bug_type}
+Error Description: {description}
+Raw Error: {raw_error}
+
+Implementation File Content:
+```
+{impl_content}
+```
+
+Test File ({test_file}) Content (READ-ONLY — DO NOT MODIFY):
+```
+{test_content}
+```
+
+Test Output (relevant snippet):
+```
+{test_output_snippet}
+```
+{prior_fix_context}
+
+Repository file tree:
+{file_tree}
+
+CRITICAL RULES:
+1. You must fix the IMPLEMENTATION file. The test file is READ-ONLY.
+2. Tests define the expected behavior — they are CORRECT.
+3. If a function returns undefined, it's likely missing a 'return' statement.
+4. If a function throws TypeError, check for .length() vs .length, wrong method calls, etc.
+5. If an import path is wrong, fix it to point to the correct module.
+6. Make MINIMAL changes — only fix the identified bug.
+7. Preserve all indentation, formatting, and coding style.
+8. Return ONLY a JSON object — no markdown, no prose.
+
+Return:
+{{
+  "fixed_content": "the complete fixed IMPLEMENTATION file content",
+  "commit_message": "[AI-AGENT] Fix BUG_TYPE in impl_file - description",
+  "explanation": "one sentence explaining the change"
+}}
+"""
+
+
+# Test file path patterns — used to detect test files vs implementation files
+TEST_FILE_PATTERNS = [
+    r'.*\.(test|spec)\.(js|ts|jsx|tsx)$',
+    r'__tests__[\\/].*\.(js|ts|jsx|tsx)$',
+    r'test_.*\.py$',
+    r'.*_test\.py$',
+    r'tests?[\\/].*\.py$',
+    r'.*_test\.go$',
+    r'spec[\\/].*_spec\.rb$',
+    r'test[\\/].*_test\.rb$',
+]
 
 
 class FixGeneratorAgent:
@@ -412,6 +477,120 @@ class FixGeneratorAgent:
                     logger.error(f"[FixGeneratorAgent] JSX fix failed: {e}")
         return None
 
+    # ── Test-file helpers ──────────────────────────────────────────────────────
+
+    def _is_test_file(self, file_rel: str) -> bool:
+        """Check if a file is a test file based on common path patterns."""
+        if not file_rel:
+            return False
+        normalized = file_rel.replace("\\", "/")
+        for pattern in TEST_FILE_PATTERNS:
+            if re.search(pattern, normalized, re.IGNORECASE):
+                return True
+        return False
+
+    def _find_implementation_file(self, test_file_rel: str, repo_path: str,
+                                   error_desc: str, state: SharedState) -> tuple:
+        """Trace a test file's imports to find the implementation file being tested.
+        
+        Returns (impl_file_rel, impl_file_abs, impl_content) or (None, None, None).
+        """
+        test_abs = os.path.join(repo_path, test_file_rel)
+        if not os.path.isfile(test_abs):
+            return None, None, None
+
+        try:
+            with open(test_abs, "r", encoding="utf-8") as f:
+                test_content = f.read()
+        except Exception:
+            return None, None, None
+
+        test_dir = os.path.dirname(test_abs)
+        candidates = []
+
+        # ── JS/TS: parse import/require statements ──
+        # import { X } from './path' or import X from './path'
+        js_imports = re.findall(
+            r"(?:import\s+.*?from\s+['\"])(\.[^'\"]+)['\"]|(?:require\s*\(\s*['\"])(\.[^'\"]+)['\"]\s*\)",
+            test_content
+        )
+        for groups in js_imports:
+            rel_path = groups[0] or groups[1]
+            if not rel_path:
+                continue
+            # Resolve against the test file's directory
+            candidate = os.path.normpath(os.path.join(test_dir, rel_path))
+            # Try with various extensions
+            for ext in ["", ".js", ".ts", ".jsx", ".tsx", ".mjs"]:
+                full = candidate + ext
+                if os.path.isfile(full):
+                    impl_rel = os.path.relpath(full, repo_path).replace("\\", "/")
+                    # Skip if this is also a test file or a lib
+                    if not self._is_test_file(impl_rel) and "node_modules" not in impl_rel:
+                        try:
+                            with open(full, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            candidates.append((impl_rel, full, content))
+                        except Exception:
+                            pass
+                    break
+
+        # ── Python: parse import/from statements ──
+        py_imports = re.findall(
+            r"from\s+(\.[\w.]+)\s+import|import\s+(\.[\w.]+)",
+            test_content
+        )
+        for groups in py_imports:
+            module_path = groups[0] or groups[1]
+            if not module_path:
+                continue
+            # Convert relative import to file path
+            parts = module_path.lstrip(".").split(".")
+            dots = len(module_path) - len(module_path.lstrip("."))
+            base = test_dir
+            for _ in range(dots - 1):
+                base = os.path.dirname(base)
+            candidate = os.path.join(base, *parts) + ".py"
+            if os.path.isfile(candidate):
+                impl_rel = os.path.relpath(candidate, repo_path).replace("\\", "/")
+                if not self._is_test_file(impl_rel):
+                    try:
+                        with open(candidate, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        candidates.append((impl_rel, candidate, content))
+                    except Exception:
+                        pass
+
+        if not candidates:
+            return None, None, None
+
+        # If error mentions a specific file, prefer that one
+        error_lower = (error_desc or "").lower()
+        for impl_rel, impl_abs, content in candidates:
+            if os.path.basename(impl_rel).lower().replace(".js", "").replace(".py", "") in error_lower:
+                logger.info(f"[FixGeneratorAgent] Traced test→impl: {test_file_rel} → {impl_rel} (matched error desc)")
+                return impl_rel, impl_abs, content
+
+        # Return the first non-test import (most likely the SUT)
+        impl_rel, impl_abs, content = candidates[0]
+        logger.info(f"[FixGeneratorAgent] Traced test→impl: {test_file_rel} → {impl_rel} (first import)")
+        return impl_rel, impl_abs, content
+
+    def _get_file_tree(self, repo_path: str, max_entries: int = 80) -> str:
+        """Get a compact file tree of the repo for LLM context."""
+        entries = []
+        for root, dirs, files in os.walk(repo_path):
+            # Skip hidden dirs, node_modules, .venv, __pycache__, .git
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in
+                       ("node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build")]
+            for fname in sorted(files):
+                rel = os.path.relpath(os.path.join(root, fname), repo_path).replace("\\", "/")
+                entries.append(rel)
+                if len(entries) >= max_entries:
+                    entries.append("... (truncated)")
+                    return "\n".join(entries)
+        return "\n".join(entries) if entries else "(empty)"
+
     # ── LLM-based fix generation ──────────────────────────────────────────────
 
     def _fix_failure(self, failure: dict, repo_path: str, state: SharedState):
@@ -436,6 +615,33 @@ class FixGeneratorAgent:
             logger.error(f"[FixGeneratorAgent] Cannot read {file_abs}: {e}")
             return None
 
+        bug_type = failure.get("bug_type", "")
+
+        # ── TEST-FILE PROTECTION: Implementation-first redirection ──
+        # For LOGIC and TYPE_ERROR in test files, trace imports to find
+        # the implementation file and fix THAT instead.
+        if self._is_test_file(file_rel) and bug_type in ("LOGIC", "TYPE_ERROR"):
+            logger.info(
+                f"[FixGeneratorAgent] 🛡️ Test-file protection: {file_rel} has {bug_type} error. "
+                f"Tracing imports to find implementation file..."
+            )
+            impl_rel, impl_abs, impl_content = self._find_implementation_file(
+                file_rel, repo_path, failure.get("description", ""), state
+            )
+            if impl_rel and impl_content:
+                logger.info(f"[FixGeneratorAgent] 🔄 Redirecting fix: {file_rel} → {impl_rel}")
+                return self._fix_impl_from_test(
+                    failure, repo_path, state,
+                    test_file_rel=file_rel, test_content=content,
+                    impl_file_rel=impl_rel, impl_file_abs=impl_abs, impl_content=impl_content,
+                )
+            else:
+                logger.warning(
+                    f"[FixGeneratorAgent] Could not trace {file_rel} to implementation file. "
+                    f"Attempting direct fix with implementation-first instructions."
+                )
+
+        # ── Standard fix path (implementation files, or test SYNTAX/IMPORT errors) ──
         # Build prior fix context
         prior_ctx = ""
         prior_fixes_for_file = [f for f in state.all_fixes_applied if f.file == file_rel]
@@ -446,29 +652,74 @@ class FixGeneratorAgent:
             prior_ctx += "\nMake sure your fix does not revert or conflict with these prior changes."
 
         # Build test output snippet
-        test_snippet = ""
-        stdout = state.test_stdout or ""
-        stderr = state.test_stderr or ""
-        combined = f"{stdout}\n{stderr}"
-        # Try to find relevant section for this file
-        file_base = os.path.basename(file_rel)
-        idx = combined.find(file_base)
-        if idx >= 0:
-            test_snippet = combined[max(0, idx - 200):idx + 800][:1000]
-        else:
-            test_snippet = combined[:1000]
+        test_snippet = self._build_test_snippet(file_rel, state)
+
+        # Get file tree for context
+        file_tree = self._get_file_tree(repo_path)
 
         prompt = FIX_PROMPT.format(
             file=file_rel,
-            bug_type=failure.get("bug_type", ""),
+            bug_type=bug_type,
             line=failure.get("line", 0),
             description=failure.get("description", ""),
             raw_error=failure.get("raw_error", ""),
             file_content=content[:8000],
             test_output_snippet=test_snippet[:2000],
             prior_fix_context=prior_ctx,
+            file_tree=file_tree[:2000],
         )
 
+        return self._call_llm_and_apply(prompt, file_rel, file_abs, failure, repo_path, state)
+
+    def _fix_impl_from_test(self, failure: dict, repo_path: str, state: SharedState,
+                             test_file_rel: str, test_content: str,
+                             impl_file_rel: str, impl_file_abs: str, impl_content: str):
+        """Fix an implementation file based on a failing test.
+        
+        Uses IMPL_FIX_PROMPT which provides both test and impl content,
+        but instructs the LLM to ONLY modify the implementation file.
+        """
+        # Build prior fix context for the IMPL file
+        prior_ctx = ""
+        prior_fixes_for_file = [f for f in state.all_fixes_applied if f.file == impl_file_rel]
+        if prior_fixes_for_file:
+            prior_ctx = f"\n⚠️ This implementation file was already fixed {len(prior_fixes_for_file)} time(s):"
+            for pf in prior_fixes_for_file[-3:]:
+                prior_ctx += f"\n  - Iteration {pf.iteration}: {pf.commit_message}"
+            prior_ctx += "\nMake sure your fix does not revert or conflict with these prior changes."
+
+        test_snippet = self._build_test_snippet(test_file_rel, state)
+        file_tree = self._get_file_tree(repo_path)
+
+        prompt = IMPL_FIX_PROMPT.format(
+            impl_file=impl_file_rel,
+            bug_type=failure.get("bug_type", ""),
+            description=failure.get("description", ""),
+            raw_error=failure.get("raw_error", ""),
+            impl_content=impl_content[:8000],
+            test_file=test_file_rel,
+            test_content=test_content[:4000],
+            test_output_snippet=test_snippet[:2000],
+            prior_fix_context=prior_ctx,
+            file_tree=file_tree[:2000],
+        )
+
+        return self._call_llm_and_apply(prompt, impl_file_rel, impl_file_abs, failure, repo_path, state)
+
+    def _build_test_snippet(self, file_rel: str, state: SharedState) -> str:
+        """Extract relevant test output snippet for a given file."""
+        stdout = state.test_stdout or ""
+        stderr = state.test_stderr or ""
+        combined = f"{stdout}\n{stderr}"
+        file_base = os.path.basename(file_rel)
+        idx = combined.find(file_base)
+        if idx >= 0:
+            return combined[max(0, idx - 200):idx + 800][:1000]
+        return combined[:1000]
+
+    def _call_llm_and_apply(self, prompt: str, file_rel: str, file_abs: str,
+                             failure: dict, repo_path: str, state: SharedState):
+        """Call the LLM with a prompt, parse the JSON response, validate and apply the fix."""
         try:
             response = self.model.generate_content(prompt)
             text = response.text.strip()

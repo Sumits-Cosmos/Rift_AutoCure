@@ -59,6 +59,13 @@ CRITICAL: IGNORE library/framework paths in stack traces. These are NOT user cod
 - internal/, <frozen *, <string>
 Always look for the USER'S source file, not framework internals.
 
+IMPLEMENTATION-FIRST RULE:
+When a test fails due to wrong return values (e.g., "expected 3 received undefined",
+"expected X but got Y"), the bug is in the IMPLEMENTATION FILE being tested, NOT the test file.
+The "file" field MUST point to the implementation source file (e.g., src/utils/textUtils.js),
+not the test file (e.g., src/tests/textUtils.test.js).
+Tests define the specification and must NOT be changed to match broken implementations.
+
 Respond ONLY with a valid JSON array. No prose, no markdown fences.
 """
 
@@ -233,11 +240,16 @@ class FailureClassifierAgent:
                 continue
             # Try to extract assertion error details
             desc = self._extract_assertion_detail(combined, file_name)
+            
+            # Implementation-first: trace test file to implementation file
+            impl_file = self._trace_test_to_impl(file_name, state)
+            target_file = impl_file if impl_file else file_name
+            
             failures.append({
-                "file": file_name,
+                "file": target_file,
                 "bug_type": "LOGIC",
                 "line": 0,
-                "description": desc or f"LOGIC error in {file_name} line 0 → Fix: review failing test assertions",
+                "description": desc or f"LOGIC error in {target_file} line 0 → Fix: review implementation for wrong return values",
                 "raw_error": m.group(0)[:200]
             })
 
@@ -250,11 +262,16 @@ class FailureClassifierAgent:
                 continue
             # Extract the actual assertion failure detail
             desc = self._extract_pytest_failure_detail(combined, test_name)
+            
+            # Implementation-first: trace test file to implementation file
+            impl_file = self._trace_test_to_impl(file_name, state)
+            target_file = impl_file if impl_file else file_name
+            
             failures.append({
-                "file": file_name,
+                "file": target_file,
                 "bug_type": "LOGIC",
                 "line": 0,
-                "description": desc or f"LOGIC error in {file_name}::{test_name} → Fix: review failing assertion",
+                "description": desc or f"LOGIC error in {target_file}::{test_name} → Fix: review implementation for failing assertion",
                 "raw_error": m.group(0)[:200]
             })
 
@@ -438,6 +455,85 @@ class FailureClassifierAgent:
             if fragment.lower() in fp_lower:
                 return True
         return False
+
+    def _is_test_file(self, file_path: str) -> bool:
+        """Check if a file is a test file based on path patterns."""
+        if not file_path:
+            return False
+        normalized = file_path.replace("\\", "/")
+        test_patterns = [
+            r'.*\.(test|spec)\.(js|ts|jsx|tsx)$',
+            r'__tests__[\\/].*\.(js|ts|jsx|tsx)$',
+            r'test_.*\.py$',
+            r'.*_test\.py$',
+            r'tests?[\\/].*\.py$',
+        ]
+        for pattern in test_patterns:
+            if re.search(pattern, normalized, re.IGNORECASE):
+                return True
+        return False
+
+    def _trace_test_to_impl(self, test_file: str, state: SharedState) -> str:
+        """Trace a test file to its implementation file via imports.
+        
+        Returns the implementation file relative path, or None.
+        """
+        if not state.repo_path or not self._is_test_file(test_file):
+            return None
+
+        test_abs = os.path.join(state.repo_path, test_file)
+        if not os.path.isfile(test_abs):
+            return None
+
+        try:
+            with open(test_abs, "r", encoding="utf-8") as f:
+                test_content = f.read()
+        except Exception:
+            return None
+
+        test_dir = os.path.dirname(test_abs)
+
+        # Parse JS/TS imports: import { X } from './path'
+        js_imports = re.findall(
+            r"(?:import\s+.*?from\s+['\"])(\.[^'\"]+)['\"]|(?:require\s*\(\s*['\"])(\.[^'\"]+)['\"]\s*\)",
+            test_content
+        )
+        for groups in js_imports:
+            rel_path = groups[0] or groups[1]
+            if not rel_path:
+                continue
+            candidate = os.path.normpath(os.path.join(test_dir, rel_path))
+            for ext in ["", ".js", ".ts", ".jsx", ".tsx", ".mjs"]:
+                full = candidate + ext
+                if os.path.isfile(full):
+                    impl_rel = os.path.relpath(full, state.repo_path).replace("\\", "/")
+                    if not self._is_test_file(impl_rel) and "node_modules" not in impl_rel:
+                        logger.info(f"[FailureClassifierAgent] Traced test→impl: {test_file} → {impl_rel}")
+                        return impl_rel
+                    break
+
+        # Parse Python imports: from .module import X
+        py_imports = re.findall(
+            r"from\s+(\.[\w.]+)\s+import|import\s+(\.[\w.]+)",
+            test_content
+        )
+        for groups in py_imports:
+            module_path = groups[0] or groups[1]
+            if not module_path:
+                continue
+            parts = module_path.lstrip(".").split(".")
+            dots = len(module_path) - len(module_path.lstrip("."))
+            base = test_dir
+            for _ in range(dots - 1):
+                base = os.path.dirname(base)
+            candidate = os.path.join(base, *parts) + ".py"
+            if os.path.isfile(candidate):
+                impl_rel = os.path.relpath(candidate, state.repo_path).replace("\\", "/")
+                if not self._is_test_file(impl_rel):
+                    logger.info(f"[FailureClassifierAgent] Traced test→impl: {test_file} → {impl_rel}")
+                    return impl_rel
+
+        return None
 
     def _extract_pytest_failure_detail(self, combined: str, test_name: str) -> str:
         """Extract pytest failure details for a specific test function.
