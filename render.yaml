@@ -42,10 +42,7 @@ services:
       - key: NODE_VERSION
         value: "20.11.0"
       - key: FASTAPI_URL
-        fromService:
-          name: cognitest-python-service
-          type: web
-          property: url
+        sync: false  # Set to https://<python-service-url>.onrender.com after deploy
       - key: STORAGE_DIR
         value: ./storage
 
@@ -53,7 +50,6 @@ services:
   - type: web
     name: cognitest-frontend
     runtime: static
-    region: oregon
     plan: free
     rootDir: frontend
     buildCommand: npm install --legacy-peer-deps && npm run build
@@ -64,12 +60,6 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          name: cognitest-backend
-          type: web
-          property: url
+        sync: false  # Set to https://<backend-url>.onrender.com after deploy
       - key: VITE_PYTHON_API_URL
-        fromService:
-          name: cognitest-python-service
-          type: web
-          property: url
+        sync: false  # Set to https://<python-service-url>.onrender.com after deploy
