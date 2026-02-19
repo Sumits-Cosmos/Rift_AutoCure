@@ -1,4 +1,4 @@
-import { BookOpen, FileCode, Play, Upload } from 'lucide-react';
+import { BookOpen, GitBranch, TerminalSquare, ShieldCheck } from 'lucide-react';
 
 /**
  * Documentation Page — Dark glassmorphic sections
@@ -6,19 +6,19 @@ import { BookOpen, FileCode, Play, Upload } from 'lucide-react';
 const DocsPage = () => {
   const sections = [
     {
-      icon: Upload,
-      title: 'How to Upload Swagger',
-      content: 'Drag and drop your JSON or YAML Swagger file into the upload box on the Testing page. Our system supports OpenAPI 3.0 and Swagger 2.0 formats. You can also paste a Swagger URL directly.',
+      icon: GitBranch,
+      title: 'How to Submit a Repository',
+      content: 'Navigate to the Healing Agent page and enter your GitHub Repository URL. Provide your Team Name and Leader Name to correctly format the automated branch creation. The repository should contain standard tests (e.g., PyTest, Jest, Go Test) for the agent to evaluate.',
     },
     {
-      icon: FileCode,
-      title: 'How to Fetch Test Cases',
-      content: 'Once your file is uploaded, enter your API\'s Base URI (e.g., https://api.example.com/v1) and click "Generate Test Cases". The AI will analyze your schema and generate comprehensive test cases including edge cases and security checks.',
+      icon: ShieldCheck,
+      title: 'Setting the Retry Limit & Authentication',
+      content: 'You can configure the Maximum Retries (default: 5) to control how many attempts the agent will make to fix failures. If you provide an optional GitHub Personal Access Token (PAT), the agent can automatically push the final squashed fixes to your repository.',
     },
     {
-      icon: Play,
-      title: 'How to Run Tests',
-      content: 'Select the tests you wish to perform using the checkboxes and hit the "Run Tests" button. Results will appear in real-time as execution completes. Tests run in batches for optimal performance.',
+      icon: TerminalSquare,
+      title: 'How to Monitor the Dashboard',
+      content: 'Click "Run Healing Agent" to start the process. The dashboard will display a live terminal stream of the agent\'s actions, a real-time progress bar of iterations, and a detailed table of applied fixes (with diffs and explanations). Results and deployed URLs are displayed upon completion.',
     },
   ];
 

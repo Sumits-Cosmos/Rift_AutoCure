@@ -995,5 +995,757 @@
         "message": "Pipeline finished with status: PASSED"
       }
     ]
+  },
+  "e0bb3b98-a64c-462c-8670-be9dbc668f60": {
+    "status": "PARTIAL",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1.git",
+      "branch": "AOSIDIFOSF_ABHINAV_AI_Fix",
+      "total_failures": 1,
+      "total_fixes": 3,
+      "iterations_used": 5,
+      "status": "PARTIAL",
+      "time_taken_seconds": 90.66,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - Add colon to function definition",
+          "explanation": "Added a colon after 'radius' in the function definition for 'calculate_area' to resolve the SyntaxError.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3",
+          "explanation": "Indented the 'return False' statement on line 3 to correctly follow the 'if' statement on line 2.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted `user_id` to a string using `str()` before calling `.upper()` to resolve the AttributeError for integer inputs.",
+          "status": "Fixed",
+          "iteration": 3
+        }
+      ],
+      "all_fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - Add colon to function definition",
+          "explanation": "Added a colon after 'radius' in the function definition for 'calculate_area' to resolve the SyntaxError.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3",
+          "explanation": "Indented the 'return False' statement on line 3 to correctly follow the 'if' statement on line 2.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted `user_id` to a string using `str()` before calling `.upper()` to resolve the AttributeError for integer inputs.",
+          "status": "Fixed",
+          "iteration": 3
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:INDENTATION"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 1,
+          "failure_count": 2,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:TYPE_ERROR",
+            "src/validator.py:LOGIC"
+          ]
+        },
+        {
+          "iteration": 4,
+          "exit_code": 1,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "unknown:LOGIC"
+          ]
+        },
+        {
+          "iteration": 5,
+          "exit_code": 1,
+          "failure_count": 1,
+          "fix_count": 0,
+          "failure_signatures": [
+            "unknown:LOGIC"
+          ]
+        }
+      ],
+      "repeated_failures": [
+        "unknown:LOGIC"
+      ],
+      "error": "No progress for 2 consecutive iterations. Applied 3 fix(es) total but 1 failure(s) remain.",
+      "deployment_url": null,
+      "git_push_status": null
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1.git",
+    "team_name": "aosidifosf",
+    "leader_name": "abhinav",
+    "created_at": 1771541601.6196346,
+    "logs": [
+      {
+        "ts": 1771541601.6279817,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771541601.6292121,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1.git"
+      },
+      {
+        "ts": 1771541602.8814077,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771541602.8814185,
+        "level": "info",
+        "message": "Creating branch: AOSIDIFOSF_ABHINAV_AI_Fix"
+      },
+      {
+        "ts": 1771541602.8903599,
+        "level": "info",
+        "message": "\u2705 Branch 'AOSIDIFOSF_ABHINAV_AI_Fix' created"
+      },
+      {
+        "ts": 1771541602.8903675,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771541602.890944,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771541602.8909483,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771541602.8917618,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771541602.8917668,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771541602.891771,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541602.8918722,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541607.8452427,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771541614.6164277,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771541614.6164365,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771541618.0800185,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 1)"
+      },
+      {
+        "ts": 1771541618.08038,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771541618.08039,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541618.0805979,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541620.296393,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771541624.3493707,
+        "level": "info",
+        "message": "Found 1 failure(s): INDENTATION"
+      },
+      {
+        "ts": 1771541624.3493767,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771541626.8889713,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 2)"
+      },
+      {
+        "ts": 1771541626.8892515,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771541626.889259,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541626.88942,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541650.6994371,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771541658.7753284,
+        "level": "info",
+        "message": "Found 2 failure(s): TYPE_ERROR, LOGIC"
+      },
+      {
+        "ts": 1771541658.7753341,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771541666.4436479,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 3)"
+      },
+      {
+        "ts": 1771541666.4438653,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771541666.443872,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 4/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541666.4439828,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541689.107702,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771541689.594462,
+        "level": "info",
+        "message": "Found 1 failure(s): LOGIC"
+      },
+      {
+        "ts": 1771541689.594468,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771541689.5946069,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 3)"
+      },
+      {
+        "ts": 1771541689.5948362,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771541689.5948446,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 5/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541689.5949786,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541691.7800043,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771541692.2801337,
+        "level": "info",
+        "message": "Found 1 failure(s): LOGIC"
+      },
+      {
+        "ts": 1771541692.2801423,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771541692.2803745,
+        "level": "info",
+        "message": "Applied 0 fix(es) this iteration (cumulative: 3)"
+      },
+      {
+        "ts": 1771541692.2806382,
+        "level": "info",
+        "message": "Monitor: NO_PROGRESS"
+      },
+      {
+        "ts": 1771541692.2860277,
+        "level": "info",
+        "message": "Pipeline finished with status: PARTIAL"
+      }
+    ]
+  },
+  "e359f6cf-2506-46cd-b82d-f2172da6c8c9": {
+    "status": "PASSED",
+    "result": {
+      "repository": "https://github.com/ukg1911/test-repo-level-1.git",
+      "branch": "COSMONIBBLERS_RISHABH_AI_Fix",
+      "total_failures": 0,
+      "total_fixes": 4,
+      "iterations_used": 5,
+      "status": "PASSED",
+      "time_taken_seconds": 104.32,
+      "language": "python",
+      "test_framework": "pytest",
+      "module_system": "",
+      "fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - add missing colon",
+          "explanation": "Added a colon (':') after the 'radius' parameter in the 'calculate_area' function definition to resolve a SyntaxError.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3 - indent return statement",
+          "explanation": "Corrected the indentation of the 'return False' statement on line 3 to be inside the 'if' block.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted 'user_id' to a string using str() before calling .upper() to prevent an AttributeError when an integer is passed.",
+          "status": "Fixed",
+          "iteration": 3
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "LOGIC",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix LOGIC error in src/validator.py line 0 - ensure validate_age returns True for valid ages",
+          "explanation": "Added a return True statement in `validate_age` for cases where age is not less than 0, ensuring it always returns a boolean.",
+          "status": "Fixed",
+          "iteration": 4
+        }
+      ],
+      "all_fixes": [
+        {
+          "file": "src/utils.py",
+          "bug_type": "SYNTAX",
+          "line": 4,
+          "commit_message": "[AI-AGENT] Fix SYNTAX error in src/utils.py line 4 - add missing colon",
+          "explanation": "Added a colon (':') after the 'radius' parameter in the 'calculate_area' function definition to resolve a SyntaxError.",
+          "status": "Fixed",
+          "iteration": 1
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "INDENTATION",
+          "line": 3,
+          "commit_message": "[AI-AGENT] Fix INDENTATION error in src/validator.py line 3 - indent return statement",
+          "explanation": "Corrected the indentation of the 'return False' statement on line 3 to be inside the 'if' block.",
+          "status": "Fixed",
+          "iteration": 2
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "TYPE_ERROR",
+          "line": 7,
+          "commit_message": "[AI-AGENT] Fix TYPE_ERROR in src/validator.py line 7 - convert user_id to string",
+          "explanation": "Converted 'user_id' to a string using str() before calling .upper() to prevent an AttributeError when an integer is passed.",
+          "status": "Fixed",
+          "iteration": 3
+        },
+        {
+          "file": "src/validator.py",
+          "bug_type": "LOGIC",
+          "line": 0,
+          "commit_message": "[AI-AGENT] Fix LOGIC error in src/validator.py line 0 - ensure validate_age returns True for valid ages",
+          "explanation": "Added a return True statement in `validate_age` for cases where age is not less than 0, ensuring it always returns a boolean.",
+          "status": "Fixed",
+          "iteration": 4
+        }
+      ],
+      "iteration_history": [
+        {
+          "iteration": 1,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/utils.py:SYNTAX"
+          ]
+        },
+        {
+          "iteration": 2,
+          "exit_code": 2,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:INDENTATION"
+          ]
+        },
+        {
+          "iteration": 3,
+          "exit_code": 1,
+          "failure_count": 2,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:TYPE_ERROR",
+            "src/validator.py:LOGIC"
+          ]
+        },
+        {
+          "iteration": 4,
+          "exit_code": 1,
+          "failure_count": 1,
+          "fix_count": 1,
+          "failure_signatures": [
+            "src/validator.py:LOGIC"
+          ]
+        },
+        {
+          "iteration": 5,
+          "exit_code": 0,
+          "failure_count": 0,
+          "fix_count": 0,
+          "failure_signatures": []
+        }
+      ],
+      "repeated_failures": [
+        "src/validator.py:LOGIC"
+      ],
+      "error": null,
+      "deployment_url": "Failed: Command '['docker', 'build', '-t', 'cicd-deploy-cosmonibblers_rishabh_ai_fix', '.']' returned non-zero exit status 1.",
+      "git_push_status": "Success (Squashed & Pushed)"
+    },
+    "repo_url": "https://github.com/ukg1911/test-repo-level-1.git",
+    "team_name": "CosmoNibblers",
+    "leader_name": "Rishabh",
+    "created_at": 1771541988.899772,
+    "logs": [
+      {
+        "ts": 1771541988.923761,
+        "level": "info",
+        "message": "Agent started \u2014 initializing pipeline..."
+      },
+      {
+        "ts": 1771541988.9258952,
+        "level": "info",
+        "message": "Cloning repository: https://github.com/ukg1911/test-repo-level-1.git"
+      },
+      {
+        "ts": 1771541990.8265479,
+        "level": "info",
+        "message": "\u2705 Repository cloned successfully"
+      },
+      {
+        "ts": 1771541990.8265548,
+        "level": "info",
+        "message": "Creating branch: COSMONIBBLERS_RISHABH_AI_Fix"
+      },
+      {
+        "ts": 1771541990.8395185,
+        "level": "info",
+        "message": "\u2705 Branch 'COSMONIBBLERS_RISHABH_AI_Fix' created"
+      },
+      {
+        "ts": 1771541990.8395252,
+        "level": "info",
+        "message": "Analyzing repository structure (language, framework, test files)..."
+      },
+      {
+        "ts": 1771541990.8400013,
+        "level": "info",
+        "message": "\u2705 Detected: language=python, framework=pytest, module=N/A"
+      },
+      {
+        "ts": 1771541990.8400047,
+        "level": "info",
+        "message": "Checking for existing test files..."
+      },
+      {
+        "ts": 1771541990.841144,
+        "level": "info",
+        "message": "\u2705 Test files found"
+      },
+      {
+        "ts": 1771541990.8411515,
+        "level": "info",
+        "message": "Starting healing loop (max 5 iterations)..."
+      },
+      {
+        "ts": 1771541990.8411589,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 1/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771541990.8413403,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771541995.257739,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771542001.5338123,
+        "level": "info",
+        "message": "Found 1 failure(s): SYNTAX"
+      },
+      {
+        "ts": 1771542001.5338185,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771542004.1196918,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 1)"
+      },
+      {
+        "ts": 1771542004.1198568,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771542004.119862,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 2/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771542004.1199403,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771542008.192318,
+        "level": "info",
+        "message": "Tests failed (exit code 2). Classifying failures..."
+      },
+      {
+        "ts": 1771542012.710185,
+        "level": "info",
+        "message": "Found 1 failure(s): INDENTATION"
+      },
+      {
+        "ts": 1771542012.7101924,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771542015.308593,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 2)"
+      },
+      {
+        "ts": 1771542015.3086882,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771542015.308691,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 3/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771542015.3087378,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771542017.5020058,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771542028.2606778,
+        "level": "info",
+        "message": "Found 2 failure(s): TYPE_ERROR, LOGIC"
+      },
+      {
+        "ts": 1771542028.2606852,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771542034.5222065,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 3)"
+      },
+      {
+        "ts": 1771542034.5223746,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771542034.5223792,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 4/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771542034.5224607,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771542056.8556075,
+        "level": "info",
+        "message": "Tests failed (exit code 1). Classifying failures..."
+      },
+      {
+        "ts": 1771542063.3867426,
+        "level": "info",
+        "message": "Found 1 failure(s): LOGIC"
+      },
+      {
+        "ts": 1771542063.3867495,
+        "level": "info",
+        "message": "Generating and applying fixes..."
+      },
+      {
+        "ts": 1771542066.8069863,
+        "level": "info",
+        "message": "Applied 1 fix(es) this iteration (cumulative: 4)"
+      },
+      {
+        "ts": 1771542066.8072577,
+        "level": "info",
+        "message": "Monitor: CONTINUE"
+      },
+      {
+        "ts": 1771542066.807266,
+        "level": "info",
+        "message": "\u2501\u2501\u2501 Iteration 5/5 \u2501\u2501\u2501"
+      },
+      {
+        "ts": 1771542066.8073926,
+        "level": "info",
+        "message": "Running tests in Docker container..."
+      },
+      {
+        "ts": 1771542091.3668814,
+        "level": "info",
+        "message": "\u2705 All tests passed!"
+      },
+      {
+        "ts": 1771542091.367101,
+        "level": "info",
+        "message": "Pushing fixed code to remote repository..."
+      },
+      {
+        "ts": 1771542091.367218,
+        "level": "info",
+        "message": "Formatting single squash commit..."
+      },
+      {
+        "ts": 1771542091.378832,
+        "level": "info",
+        "message": "Pushing cleanup commit to remote..."
+      },
+      {
+        "ts": 1771542092.9956737,
+        "level": "info",
+        "message": "Git push: Success (Squashed & Pushed)"
+      },
+      {
+        "ts": 1771542092.995681,
+        "level": "info",
+        "message": "Attempting deployment..."
+      },
+      {
+        "ts": 1771542093.2368758,
+        "level": "warn",
+        "message": "\u26a0 Deployment skipped or failed"
+      },
+      {
+        "ts": 1771542093.2418094,
+        "level": "info",
+        "message": "Pipeline finished with status: PASSED"
+      }
+    ]
   }
 }
