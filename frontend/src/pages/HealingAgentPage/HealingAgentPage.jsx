@@ -33,7 +33,7 @@ function calcScore(result) {
     if (timeMins < 5) score += 10;
     const commits = result.total_fixes || 0;
     if (commits > 20) score -= (commits - 20) * 2;
-    return Math.max(0, score);
+    return score;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -62,6 +62,8 @@ function RunSummaryCard({ job, result }) {
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
                 <InfoRow label="Repository" value={job.repo_url} truncate />
+                <InfoRow label="Team" value={job.team_name} />
+                <InfoRow label="Leader" value={job.leader_name} />
                 <InfoRow label="Branch" value={result?.branch || '—'} mono />
                 <InfoRow label="Language" value={result?.language || '—'} />
                 <InfoRow label="Framework" value={result?.test_framework || '—'} />
@@ -69,6 +71,20 @@ function RunSummaryCard({ job, result }) {
                 <InfoRow label="Fixes applied" value={result?.total_fixes ?? '—'} />
                 <InfoRow label="Iterations used" value={result ? `${result.iterations_used}/${5}` : '—'} />
                 <InfoRow label="Time taken" value={duration ? `${duration.toFixed(1)}s` : '—'} />
+                {result?.deployment_url && (
+                    <div className="col-span-2 bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3">
+                        <p className="text-xs text-indigo-300 mb-0.5">🚀 Deployed App</p>
+                        <a href={result.deployment_url} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-white hover:underline truncate block">
+                            {result.deployment_url}
+                        </a>
+                    </div>
+                )}
+                {result?.git_push_status && (
+                    <div className="col-span-2 bg-white/5 rounded-xl p-3">
+                        <p className="text-xs text-slate-400 mb-0.5">Git Push Status</p>
+                        <p className="text-sm font-mono text-white truncate">{result.git_push_status}</p>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -107,10 +123,9 @@ function FixesTable({ fixes }) {
                 <table className="w-full text-sm">
                     <thead>
                         <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-wider">
-                            <th className="px-4 py-3 text-left">Iter</th>
                             <th className="px-4 py-3 text-left">File</th>
                             <th className="px-4 py-3 text-left">Bug Type</th>
-                            <th className="px-4 py-3 text-left">Line</th>
+                            <th className="px-4 py-3 text-left">Line Number</th>
                             <th className="px-4 py-3 text-left">Commit Message</th>
                             <th className="px-4 py-3 text-left">Status</th>
                         </tr>
@@ -118,11 +133,6 @@ function FixesTable({ fixes }) {
                     <tbody>
                         {fixes.map((fix, i) => (
                             <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                                <td className="px-4 py-3">
-                                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono font-semibold">
-                                        #{fix.iteration || '?'}
-                                    </span>
-                                </td>
                                 <td className="px-4 py-3 font-mono text-slate-200 text-xs">{fix.file}</td>
                                 <td className="px-4 py-3">
                                     <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${BUG_TYPE_COLORS[fix.bug_type] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
@@ -135,7 +145,7 @@ function FixesTable({ fixes }) {
                                 </td>
                                 <td className="px-4 py-3">
                                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
-                                        {fix.status}
+                                        ✓ Fixed
                                     </span>
                                 </td>
                             </tr>
@@ -440,6 +450,7 @@ export default function HealingAgentPage() {
                             maxIterations={form.retry_limit}
                         />
 
+                        {/* Summary grid */}
                         {/* Summary grid */}
                         <div className="grid md:grid-cols-2 gap-6">
                             <RunSummaryCard job={job} result={result} />

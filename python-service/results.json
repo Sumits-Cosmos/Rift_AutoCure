@@ -1,0 +1,40 @@
+{
+  "repository": "https://github.com/ukg1911/ci-cd-testing",
+  "branch": "AL_AKJ_AI_Fix",
+  "total_failures": 1,
+  "total_fixes": 0,
+  "iterations_used": 2,
+  "status": "FAILED",
+  "time_taken_seconds": 7.96,
+  "language": "python",
+  "test_framework": "pytest",
+  "module_system": "",
+  "fixes": [],
+  "all_fixes": [],
+  "iteration_history": [
+    {
+      "iteration": 1,
+      "exit_code": 2,
+      "failure_count": 1,
+      "fix_count": 0,
+      "failure_signatures": [
+        "unknown:IMPORT"
+      ]
+    },
+    {
+      "iteration": 2,
+      "exit_code": 2,
+      "failure_count": 1,
+      "fix_count": 0,
+      "failure_signatures": [
+        "unknown:IMPORT"
+      ]
+    }
+  ],
+  "repeated_failures": [
+    "unknown:IMPORT"
+  ],
+  "error": "No progress for 2 consecutive iterations. Applied 0 fix(es) total but 1 failure(s) remain.",
+  "deployment_url": null,
+  "git_push_status": null
+}
