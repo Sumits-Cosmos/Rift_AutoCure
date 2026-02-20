@@ -12,9 +12,9 @@ import os
 import re
 import json
 import logging
-import google.generativeai as genai
 from dotenv import load_dotenv
 from .shared_state import SharedState
+from src.llm.client import LLMClient
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -84,13 +84,9 @@ class FailureClassifierAgent:
     """Classifies test failures using Gemini LLM with improved regex fallback."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
-        else:
-            self.model = None
-            logger.warning("[FailureClassifierAgent] No Gemini API key - using regex fallback.")
+        self.client = LLMClient()
+        if not self.client.model:
+             logger.warning("[FailureClassifierAgent] No LLM client available - using regex fallback.")
 
     def run(self, state: SharedState) -> SharedState:
         if state.test_exit_code == 0:
@@ -105,7 +101,7 @@ class FailureClassifierAgent:
         logger.info(f"[FailureClassifierAgent] Classifying failures from output ({len(combined)} chars)...")
 
         failures = []
-        if self.model:
+        if self.client.model:
             failures = self._classify_with_llm(state)
 
         if not failures:
@@ -148,34 +144,18 @@ class FailureClassifierAgent:
             framework=state.test_framework,
             iteration_context=iter_ctx,
         )
-        try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-            parsed = json.loads(text)
-            if isinstance(parsed, list) and len(parsed) > 0:
-                return parsed
-            logger.warning("[FailureClassifierAgent] LLM returned empty list, using regex fallback.")
-        except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   The API key has hit its request quota."
-                    "\n   Classification will use regex fallback for this iteration."
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Classification falling back to regex."
-                    "\n" + "=" * 60 + "\033[0m"
-                )
+        
+        # Use centralized client
+        failures = self.client.generate_json(prompt, default_value=[])
+        
+        if failures:
+            # Basic validation that it's a list of dicts
+            if isinstance(failures, list) and len(failures) > 0 and isinstance(failures[0], dict):
+                return failures
             else:
-                logger.warning(f"[FailureClassifierAgent] LLM failed ({e}), falling back to regex.")
+                logger.warning(f"[FailureClassifierAgent] LLM returned invalid JSON structure: {failures}")
+        
+        logger.warning("[FailureClassifierAgent] LLM returned no failures (or invalid format), using regex fallback.")
         return []
 
     def _classify_with_regex(self, state: SharedState):

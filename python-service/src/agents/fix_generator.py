@@ -10,9 +10,9 @@ import re
 import json
 import logging
 import subprocess
-import google.generativeai as genai
 from dotenv import load_dotenv
 from .shared_state import SharedState, FixRecord
+from src.llm.client import LLMClient
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -128,15 +128,9 @@ class FixGeneratorAgent:
     """Generates and applies code fixes using Gemini LLM with structural handlers."""
 
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and api_key not in ("your_gemini_api_key_here", "YOUR_GEMINI_KEY_HERE"):
-            genai.configure(api_key=api_key)
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-            self.model = genai.GenerativeModel(model_name)
-            logger.info(f"[FixGeneratorAgent] Using Gemini model: {model_name}")
-        else:
-            self.model = None
-            logger.warning("[FixGeneratorAgent] No Gemini API key - fixes will be skipped.")
+        self.client = LLMClient()
+        if not self.client.model:
+            logger.warning("[FixGeneratorAgent] No LLM client available - fixes will be skipped.")
 
     def run(self, state: SharedState) -> SharedState:
         if not state.classified_failures:
@@ -167,7 +161,7 @@ class FixGeneratorAgent:
                     fixes_applied.append(fix_record)
                     continue
 
-            if not self.model:
+            if not self.client.model:
                 logger.warning("[FixGeneratorAgent] Skipping LLM fix - no model available.")
                 continue
 
@@ -719,31 +713,23 @@ class FixGeneratorAgent:
 
     def _call_llm_and_apply(self, prompt: str, file_rel: str, file_abs: str,
                              failure: dict, repo_path: str, state: SharedState):
-        """Call the LLM with a prompt, parse the JSON response, validate and apply the fix."""
+        """Call the LLM via client, parse JSON, validate and apply key."""
+        if not self.client.model:
+            return None
+
+        # Use the centralized client which handles rate limiting & retries
+        text = self.client.generate_content(prompt)
+        if not text:
+            logger.error(f"[FixGeneratorAgent] LLM returned empty response for {file_rel}")
+            return None
+
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-            text = re.sub(r"^```[a-z]*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
+            # Clean markdown code blocks
+            text = re.sub(r"^```[a-z]*\n?", "", text.strip())
+            text = re.sub(r"\n?```$", "", text.strip())
             fix_data = json.loads(text)
-        except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "resource" in error_str and "exhausted" in error_str or "quota" in error_str or "rate" in error_str:
-                logger.error(
-                    "\n" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n   Consider waiting or upgrading your API plan."
-                    "\n" + "=" * 60
-                )
-                print(
-                    "\n\033[93m" + "=" * 60 +
-                    "\n⚠️  GEMINI API RATE LIMIT REACHED  ⚠️"
-                    "\n   Fix generation skipped for: " + file_rel +
-                    "\n" + "=" * 60 + "\033[0m"
-                )
-            else:
-                logger.error(f"[FixGeneratorAgent] LLM fix generation failed for {file_rel}: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"[FixGeneratorAgent] Failed to parse JSON from LLM: {e}")
             return None
 
         fixed_content = fix_data.get("fixed_content", "")
