@@ -1,177 +1,368 @@
-# Cognitest - AI-Powered API Testing Platform
+# 🧠 AutoCure  
+### Autonomous CI/CD Healing Agent  
+Built for RIFT 2026 Hackathon — AI/ML Track  
 
-An intelligent API testing platform that uses Google Gemini AI to automatically generate and execute test cases from Swagger/OpenAPI specifications.
+AutoCure is an AI-powered autonomous DevOps platform that detects, fixes, validates, and iterates on failing repositories — without human intervention.
 
-## Architecture
+It clones a GitHub repository, runs test suites inside a sandboxed Docker environment, classifies failures, generates targeted fixes, commits with `[AI-AGENT]` prefix, and continues until all tests pass or retry limits are reached.
+
+---
+
+# 🚀 What AutoCure Does
+
+AutoCure automates the debugging lifecycle inside CI/CD pipelines.
+
+Instead of developers manually fixing failures, AutoCure:
+
+1. Clones the repository
+2. Creates a new AI branch
+3. Detects language and test framework
+4. Runs tests inside Docker sandbox
+5. Classifies failures
+6. Generates targeted fixes
+7. Commits fixes with `[AI-AGENT]`
+8. Re-runs tests
+9. Stops when:
+   - All tests pass ✅
+   - Retry limit reached
+   - Oscillation detected
+
+---
+
+# 🏗 Architecture Overview
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    Frontend     │────▶│    Backend      │────▶│  Python Service │
-│   (React/Vite)  │     │   (Node.js)     │     │    (FastAPI)    │
-│   Port: 5173    │     │   Port: 5000    │     │   Port: 8000    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                               │
-                               ▼
-                        ┌─────────────────┐
-                        │     Newman      │
-                        │  (Test Runner)  │
-                        └─────────────────┘
+React Dashboard (Frontend)
+        ↓
+Node.js Backend (API Layer)
+        ↓
+Python FastAPI Multi-Agent Engine
+        ↓
+Docker Sandbox Execution
+        ↓
+GitHub Branch + Commits
 ```
 
-## Flow
+---
 
-### Flow 1: Generate Test Cases
+# 🧠 Multi-Agent System
+
+| Agent | Responsibility |
+|--------|---------------|
+| RepoAnalyzerAgent | Detects language, framework, module system |
+| TestRunnerAgent | Executes tests in Docker sandbox |
+| FailureClassifierAgent | Parses and structures failure output |
+| FixGeneratorAgent | Generates contextual code fixes |
+| CIMonitorAgent | Detects oscillation & retry logic |
+| OrchestratorAgent | Coordinates full healing lifecycle |
+
+---
+
+# 🔄 Healing Lifecycle (Step-by-Step)
+
+1. User inputs:
+   - GitHub Repository URL
+   - Team Name
+   - Team Leader Name
+
+2. AutoCure:
+   - Clones repo
+   - Creates branch:
+     TEAMNAME_LEADERNAME_AI_Fix
+   - Runs tests inside Docker
+   - Extracts structured failures
+   - Generates patches
+   - Commits fixes
+   - Re-runs tests
+   - Tracks iteration history
+
+3. Final Output:
+   - results.json
+   - Dashboard summary
+   - Fix timeline
+   - Score breakdown
+
+---
+
+# 📁 Project Structure
+
 ```
-Swagger URL → FastAPI parses → Gemini AI generates tests → FastAPI builds Postman collection → Node stores it
+Rift_AutoCure/
+│
+├── frontend/            # React + Vite dashboard
+├── backend/             # Node.js Express API
+├── python-service/      # FastAPI AI multi-agent engine
+└── README.md
 ```
 
-### Flow 2: Execute Tests
+---
+
+# 🛠 Local Development Setup
+
+---
+
+# 1️⃣ Clone Repository
+
+```bash
+git clone https://github.com/Sumits-Cosmos/Rift_AutoCure.git
+cd Rift_AutoCure
 ```
-Node loads collection → Newman runs tests → Report produced → FastAPI analyzes → Node stores summary
-```
 
-## Prerequisites
+---
 
-- **Node.js** v18+ 
-- **Python** 3.10+
-- **Google Gemini API Key** (Get from https://makersuite.google.com/app/apikey)
+# 🐍 2️⃣ Setup Python AI Service
 
-## Quick Start
-
-### 1. Setup Python Service (FastAPI)
+Navigate:
 
 ```bash
 cd python-service
-pip install -r requirements.txt
 ```
 
-Edit `.env` and add your Gemini API key:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
+Create virtual environment:
+
+```bash
+python -m venv .venv
 ```
 
-Start the service:
+Activate:
+
+Windows:
+```bash
+.venv\Scripts\activate
+```
+
+Mac/Linux:
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+uv add -r requirements.txt
+```
+
+Create `.env` file:
+
+```
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
+GITHUB_TOKEN=your_github_token
+USE_DOCKER=true
+MAX_RETRIES=5
+LLM_MIN_SLEEP=3
+```
+
+Start server:
+
 ```bash
 uvicorn src.main:app --reload --port 8000
 ```
 
-### 2. Setup Backend (Node.js)
+Runs at:
+
+```
+http://localhost:8000
+```
+
+---
+
+# 🟢 3️⃣ Setup Node Backend
+
+Navigate:
 
 ```bash
 cd backend
+```
+
+Install dependencies:
+
+```bash
 npm install
 ```
 
-The `.env` file should already be configured:
-```env
+Create `.env` file:
+
+```
 PORT=5000
 FASTAPI_URL=http://localhost:8000
 STORAGE_DIR=./storage
 ```
 
-Start the service:
+Start server:
+
 ```bash
-npm run dev
+node server.js
 ```
 
-### 3. Setup Frontend (React/Vite)
+Runs at:
+
+```
+http://localhost:5000
+```
+
+---
+
+# 🎨 4️⃣ Setup React Frontend
+
+Navigate:
 
 ```bash
 cd frontend
-npm install
 ```
 
-The `.env` file should already be configured:
-```env
+Install dependencies:
+
+```bash
+npm install --legacy-peer-deps
+```
+
+Create `.env` file:
+
+```
 VITE_API_URL=http://localhost:5000
+VITE_PYTHON_API_URL=http://localhost:8000
 ```
 
-Start the service:
+Start dev server:
+
 ```bash
 npm run dev
 ```
 
-### 4. Access the Application
-
-Open your browser and go to: **http://localhost:5173**
-
-## Usage
-
-1. Navigate to the **Testing** page
-2. Enter a Swagger/OpenAPI URL (e.g., `https://petstore.swagger.io/v2/swagger.json`)
-3. Click **Generate Test Cases** - AI will analyze the API and create test cases
-4. Review and modify test cases as needed (toggle selection, delete)
-5. Click **Run Tests** to execute the tests
-6. View the test results summary
-
-## API Endpoints
-
-### Backend (Port 5000)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/runs/generate` | Generate test cases from Swagger URL |
-| POST | `/api/runs/update` | Update test cases for a run |
-| POST | `/api/runs/:runId/execute` | Execute tests and get results |
-
-### Python Service (Port 8000)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/parse-swagger` | Parse Swagger/OpenAPI spec |
-| POST | `/generate-tests` | Generate tests using Gemini AI |
-| POST | `/analyze-report` | Analyze Newman test report |
-
-## Project Structure
+Runs at:
 
 ```
-Cognitest/
-├── frontend/              # React + Vite frontend
-│   ├── src/
-│   │   ├── components/    # Reusable UI components
-│   │   ├── pages/         # Page components
-│   │   ├── services/      # API service layer
-│   │   └── hooks/         # Custom React hooks
-│   └── .env               # Frontend environment config
-│
-├── backend/               # Node.js + Express backend
-│   ├── src/
-│   │   ├── controllers/   # Request handlers
-│   │   ├── modules/       # Business logic (runs, newman)
-│   │   ├── routes/        # API routes
-│   │   ├── clients/       # External service clients (FastAPI)
-│   │   └── utils/         # Utility functions
-│   ├── storage/           # File storage for collections/reports
-│   └── .env               # Backend environment config
-│
-└── python-service/        # FastAPI + Gemini AI service
-    ├── src/
-    │   ├── main.py            # FastAPI app
-    │   ├── swagger_parser.py  # Swagger parsing
-    │   ├── gemini_generator.py # Gemini AI integration
-    │   ├── postman_builder.py  # Postman collection builder
-    │   └── report_analyzer.py  # Test report analyzer
-    └── .env               # Python service config (Gemini API key)
+http://localhost:5173
 ```
 
-## Troubleshooting
+---
 
-### CORS Issues
-The backend already has CORS enabled. If you still face issues, ensure all services are running on the correct ports.
+# 🐳 Docker Requirement
 
-### Gemini API Errors
-- Verify your API key is correctly set in `python-service/.env`
-- Check your Gemini API quota at https://makersuite.google.com/
+AutoCure uses Docker for sandboxed test execution.
 
-### Newman Errors
-- Ensure the target API is accessible from your machine
-- Check that the baseUrl in the Swagger spec is correct
+Install Docker Desktop and ensure it is running.
 
-## License
+Verify installation:
 
-MIT
+```bash
+docker --version
+```
 
-## run bat file
+Docker ensures:
 
-.\start-all.bat
+- Secure isolated execution
+- No host pollution
+- Clean environment per iteration
+- Safe execution of untrusted repositories
+
+---
+
+# 📊 Dashboard Features
+
+## Input Panel
+- GitHub Repository URL
+- Team Name
+- Team Leader Name
+
+## Run Summary
+- Branch created
+- Total failures
+- Total fixes
+- Iterations used
+- Final CI status
+- Total time taken
+
+## Fix Table
+| File | Bug Type | Line | Commit Message | Status |
+
+## CI/CD Timeline
+- Iteration history
+- Exit codes
+- Retry tracking
+- Oscillation detection
+
+## Score Breakdown
+- Base Score: 100
+- Speed Bonus
+- Efficiency Penalty
+- Final Score
+
+---
+
+# 🧩 Supported Bug Types
+
+- IMPORT
+- SYNTAX
+- LOGIC
+- TYPE_ERROR
+- LINTING
+- INDENTATION
+- STRUCTURAL
+
+---
+
+# 🔐 Security & Safety
+
+- All execution inside Docker sandbox
+- No direct execution on host machine
+- Retry limit configurable
+- Oscillation detection prevents infinite loops
+- No direct push to main branch
+- All commits prefixed with `[AI-AGENT]`
+
+---
+
+# ⚠ Known Limitations
+
+- Large monorepos may exceed memory limits
+- Complex DB-dependent tests require environment setup
+- Optimized currently for Node.js repositories
+- Python repo support is experimental
+
+---
+
+# 🧠 Tech Stack
+
+Frontend:
+- React
+- Vite
+- TailwindCSS
+
+Backend:
+- Node.js
+- Express
+
+AI Engine:
+- Python
+- FastAPI
+- Multi-Agent Architecture
+- Gemini / Ollama LLM
+
+Infrastructure:
+- Docker
+- GitHub API
+
+---
+
+# 🏆 Hackathon Alignment — RIFT 2026
+
+✔ Autonomous CI/CD healing  
+✔ Multi-agent architecture  
+✔ Sandboxed execution  
+✔ Exact branch naming format  
+✔ `[AI-AGENT]` commit prefix  
+✔ Iteration monitoring  
+✔ Structured results.json output  
+✔ Fully deployed dashboard  
+
+---
+
+# 👥 Team
+
+Team Name: CosmoNibblers  
+  
+
+---
+
