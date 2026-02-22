@@ -1,5 +1,8 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +30,31 @@ app.add_middleware(
 )
 
 # ─── In-memory job store ───────────────────────────────────────────────────────
-_jobs: Dict[str, dict] = {}
+import json
+import os
+
+# ─── File-based job store ──────────────────────────────────────────────────────
+JOBS_FILE = "jobs.json"
 _executor = ThreadPoolExecutor(max_workers=4)
+
+def _load_jobs() -> Dict[str, dict]:
+    if not os.path.exists(JOBS_FILE):
+        return {}
+    try:
+        with open(JOBS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load jobs: {e}")
+        return {}
+
+def _save_jobs(jobs: Dict[str, dict]):
+    try:
+        with open(JOBS_FILE, "w", encoding="utf-8") as f:
+            json.dump(jobs, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save jobs: {e}")
+
+_jobs: Dict[str, dict] = _load_jobs()
 
 # ─── Request/Response models ──────────────────────────────────────────────────
 
@@ -49,6 +75,7 @@ class RunAgentRequest(BaseModel):
     team_name: str
     leader_name: str
     retry_limit: Optional[int] = 5
+    pat_token: Optional[str] = None
 
 class RunAgentResponse(BaseModel):
     job_id: str
@@ -105,18 +132,37 @@ def analyze(req: ReportReq):
 
 # ─── CI/CD Healing Agent endpoints ───────────────────────────────────────────
 
-def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: str, retry_limit: int):
+def _add_log(job_id: str, message: str, level: str = "info"):
+    """Append a timestamped log entry to the job."""
+    import time as _time
+    entry = {"ts": _time.time(), "level": level, "message": message}
+    _jobs[job_id].setdefault("logs", []).append(entry)
+
+
+def _run_orchestrator(job_id: str, repo_url: str, team_name: str, leader_name: str, retry_limit: int, pat_token: Optional[str] = None):
     """Background task that runs the full healing pipeline."""
     _jobs[job_id]["status"] = "RUNNING"
+    _jobs[job_id]["logs"] = []
+    _add_log(job_id, "Agent started — initializing pipeline...")
+
+    # Create a callback the orchestrator can use to emit step logs
+    def log_callback(msg: str, level: str = "info"):
+        _add_log(job_id, msg, level)
+
     try:
-        agent = OrchestratorAgent(retry_limit=retry_limit)
-        result = agent.run(repo_url, team_name, leader_name)
+        agent = OrchestratorAgent(retry_limit=retry_limit, log_callback=log_callback)
+        result = agent.run(repo_url, team_name, leader_name, pat_token)
         _jobs[job_id]["result"] = result
         _jobs[job_id]["status"] = result.get("status", "COMPLETE")
+        _add_log(job_id, f"Pipeline finished with status: {result.get('status', 'COMPLETE')}")
+        _save_jobs(_jobs)
     except Exception as e:
         logger.exception(f"[API] Job {job_id} crashed: {e}")
         _jobs[job_id]["status"] = "ERROR"
         _jobs[job_id]["result"] = {"error": str(e), "status": "FAILED"}
+        _add_log(job_id, f"Pipeline crashed: {e}", "error")
+    finally:
+        _save_jobs(_jobs)
 
 
 @app.post("/run-agent", response_model=RunAgentResponse)
@@ -136,11 +182,12 @@ async def run_agent(req: RunAgentRequest, background_tasks: BackgroundTasks):
         "leader_name": req.leader_name,
         "created_at": time.time()
     }
+    _save_jobs(_jobs)
 
     # Run in background thread (orchestrator is CPU/IO bound)
     background_tasks.add_task(
         _run_orchestrator,
-        job_id, req.repo_url, req.team_name, req.leader_name, req.retry_limit
+        job_id, req.repo_url, req.team_name, req.leader_name, req.retry_limit, req.pat_token
     )
 
     logger.info(f"[API] Job {job_id} queued for repo: {req.repo_url}")
@@ -165,6 +212,17 @@ def agent_status(job_id: str):
         "team_name": job.get("team_name"),
         "leader_name": job.get("leader_name"),
     }
+
+
+@app.get("/agent-logs/{job_id}")
+def agent_logs(job_id: str, since: float = 0):
+    """Return log entries for a job, optionally filtered to entries after `since` timestamp."""
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+    logs = _jobs[job_id].get("logs", [])
+    if since > 0:
+        logs = [l for l in logs if l["ts"] > since]
+    return {"job_id": job_id, "logs": logs}
 
 
 @app.get("/agent-jobs")

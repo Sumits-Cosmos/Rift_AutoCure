@@ -23,6 +23,7 @@ import shutil
 import logging
 import subprocess
 import tempfile
+from typing import Optional
 
 from .shared_state import SharedState, FixRecord
 from .repo_analyzer import RepoAnalyzerAgent
@@ -50,19 +51,21 @@ class OrchestratorAgent:
       5. Write results & return
     """
 
-    def __init__(self, retry_limit: int = 5):
+    def __init__(self, retry_limit: int = 5, log_callback=None):
         self.retry_limit = retry_limit
+        self._log = log_callback or (lambda msg, level="info": None)
         self.analyzer = RepoAnalyzerAgent()
         self.runner = TestRunnerAgent()
         self.classifier = FailureClassifierAgent()
         self.fixer = FixGeneratorAgent()
         self.monitor = CIMonitorAgent()
 
-    def run(self, repo_url: str, team_name: str, leader_name: str) -> dict:
+    def run(self, repo_url: str, team_name: str, leader_name: str, pat_token: Optional[str] = None) -> dict:
         state = SharedState(
             repo_url=repo_url,
             team_name=team_name,
             leader_name=leader_name,
+            pat_token=pat_token,
             retry_limit=self.retry_limit,
             start_time=time.time()
         )
@@ -73,25 +76,35 @@ class OrchestratorAgent:
             state.branch_name = self._make_branch_name(team_name, leader_name)
 
             # ── Step 1: Clone ──────────────────────────────────────────────
+            self._log(f"Cloning repository: {repo_url}")
             logger.info(f"[OrchestratorAgent] Cloning {repo_url} into {tmp_dir}")
             clone_ok = self._clone_repo(repo_url, tmp_dir)
             if not clone_ok:
                 state.final_status = "FAILED"
                 state.error_message = f"Failed to clone repository: {repo_url}"
+                self._log(f"❌ Clone failed for {repo_url}", "error")
                 return self._build_result(state)
 
+            self._log(f"✅ Repository cloned successfully")
+            self._log(f"Creating branch: {state.branch_name}")
             logger.info(f"[OrchestratorAgent] Creating branch: {state.branch_name}")
-            self._create_branch(tmp_dir, state.branch_name)
+            state.base_commit = self._create_branch(tmp_dir, state.branch_name)
+            self._log(f"✅ Branch '{state.branch_name}' created")
 
             # ── Step 2: Analyze repo ───────────────────────────────────────
+            self._log("Analyzing repository structure (language, framework, test files)...")
             state = self.analyzer.run(state)
+            self._log(f"✅ Detected: language={state.language}, framework={state.test_framework}, module={state.module_system or 'N/A'}")
 
             # ── Step 3: Check / generate test files ────────────────────────
+            self._log("Checking for existing test files...")
             has_tests = self._has_test_files(state)
             if not has_tests:
+                self._log("⚠ No test files found — attempting to generate placeholder tests...", "warn")
                 generated = self._generate_placeholder_tests(state)
                 if generated:
                     logger.info("[OrchestratorAgent] ✅ Generated placeholder test file.")
+                    self._log("✅ Generated placeholder test file")
                     state.error_message = (
                         "No existing test files were found in the repository. "
                         "A placeholder test file was generated to allow the pipeline to proceed."
@@ -99,6 +112,7 @@ class OrchestratorAgent:
                     self._commit_generated_tests(state)
                 else:
                     logger.warning("[OrchestratorAgent] ❌ No test files found and could not generate stubs.")
+                    self._log("❌ No test files found and could not generate stubs", "error")
                     state.final_status = "FAILED"
                     state.error_message = (
                         f"No test files found in the repository. "
@@ -107,20 +121,26 @@ class OrchestratorAgent:
                         f"Please add test files to your repository before running the healing agent."
                     )
                     return self._build_result(state)
+            else:
+                self._log("✅ Test files found")
 
             # ── Step 4: Healing loop ───────────────────────────────────────
+            self._log(f"Starting healing loop (max {state.retry_limit} iterations)...")
             while state.current_iteration < state.retry_limit:
                 state.current_iteration += 1
+                self._log(f"━━━ Iteration {state.current_iteration}/{state.retry_limit} ━━━")
                 logger.info(f"\n{'='*60}")
                 logger.info(f"[OrchestratorAgent] >>> ITERATION {state.current_iteration}/{state.retry_limit}")
                 logger.info(f"{'='*60}")
 
                 # a) Run tests in Docker
+                self._log("Running tests in Docker container...")
                 state = self.runner.run(state)
 
                 # b) Short-circuit only if tests PASSED
                 if state.test_exit_code == 0:
                     state.final_status = "PASSED"
+                    self._log("✅ All tests passed!")
                     logger.info("[OrchestratorAgent] ✅ Tests passed!")
                     # Record final clean iteration
                     state.classified_failures = []
@@ -128,6 +148,21 @@ class OrchestratorAgent:
                     state.total_failures = 0
                     state.total_fixes = 0
                     state.record_iteration()
+                    
+                    # ─── Step 5: Post-Success Actions ──────────────────────────
+                    # 1. Push to remote
+                    self._log("Pushing fixed code to remote repository...")
+                    self._git_push(state)
+                    self._log(f"Git push: {getattr(state, 'git_push_status', 'unknown')}")
+                    
+                    # 2. Deploy
+                    self._log("Attempting deployment...")
+                    self._deploy_container(state)
+                    if hasattr(state, 'deployment_url') and state.deployment_url and not state.deployment_url.startswith('Failed'):
+                        self._log(f"✅ Deployed at {state.deployment_url}")
+                    else:
+                        self._log("⚠ Deployment skipped or failed", "warn")
+
                     break
 
                 # Log raw output to help debugging (guard against None)
@@ -137,10 +172,16 @@ class OrchestratorAgent:
                 logger.info(f"[OrchestratorAgent] Test stderr (first 500):\n{stderr[:500]}")
 
                 # c) Classify failures — ALWAYS before any stop decision
+                self._log(f"Tests failed (exit code {state.test_exit_code}). Classifying failures...")
                 state = self.classifier.run(state)
+                num_failures = len(state.classified_failures)
+                self._log(f"Found {num_failures} failure(s): {', '.join(f.get('bug_type','?') for f in state.classified_failures[:5])}")
 
                 # d) Apply fixes
+                self._log("Generating and applying fixes...")
                 state = self.fixer.run(state)
+                num_fixes = len(state.fixes_applied)
+                self._log(f"Applied {num_fixes} fix(es) this iteration (cumulative: {state.cumulative_fixes})")
 
                 # e) Now let the monitor decide if we should continue
                 monitor_result = self.monitor.run(state)
@@ -149,6 +190,7 @@ class OrchestratorAgent:
                     f"[OrchestratorAgent] Monitor decision: {monitor_result['reason']} | "
                     f"Cumulative fixes: {state.cumulative_fixes}"
                 )
+                self._log(f"Monitor: {monitor_result['reason']}")
 
                 if monitor_result["should_stop"]:
                     reason = monitor_result["reason"]
@@ -291,11 +333,159 @@ class OrchestratorAgent:
 
     def _make_branch_name(self, team_name: str, leader_name: str) -> str:
         def sanitize(s: str) -> str:
-            s = s.upper()
-            s = re.sub(r"[^A-Z0-9]+", "_", s)
-            s = s.strip("_")
-            return s
-        return f"{sanitize(team_name)}_{sanitize(leader_name)}_AI_Fix"
+            # Replace spaces with underscores, remove non-alphanumeric (keep underscores), uppercase
+            s = s.replace(" ", "_")
+            s = re.sub(r"[^A-Za-z0-9_]", "", s)
+            return s.upper()
+        
+        t = sanitize(team_name)
+        l = sanitize(leader_name)
+        return f"{t}_{l}_AI_Fix"
+
+    def _git_push(self, state: SharedState):
+        """Push the current branch to origin. If PAT is provided, squash and push to remote."""
+        repo_path = state.repo_path
+        branch = state.branch_name
+        
+        logger.info(f"[OrchestratorAgent] Pushing branch {branch} to origin...")
+
+        # If we have a PAT, we want to squash all AI commits into one and push to the user's repo
+        if state.pat_token and state.base_commit:
+             try:
+                self._log("Formatting single squash commit...")
+                env = {**os.environ, 
+                       "GIT_AUTHOR_NAME": "AI-Fix-Agent", "GIT_AUTHOR_EMAIL": "ai-fix@rift.local",
+                       "GIT_COMMITTER_NAME": "AI-Fix-Agent", "GIT_COMMITTER_EMAIL": "ai-fix@rift.local"}
+
+                # 1. Soft reset to base commit (staged changes remain)
+                subprocess.run(
+                    ["git", "reset", "--soft", state.base_commit],
+                    cwd=repo_path, check=True, capture_output=True
+                )
+                
+                # 2. Create the final commit
+                commit_msg = (
+                    f"AI Fix: Automated fixes for {state.team_name} / {state.leader_name}\n\n"
+                    f"Fixes applied: {state.cumulative_fixes}\n"
+                    "Agents: Cognitest AI Healing Pipeline"
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    cwd=repo_path, check=True, env=env, capture_output=True
+                )
+                
+                # 3. Construct authenticated URL
+                # Extract user/repo from original URL
+                # e.g. https://github.com/user/repo.git -> user/repo.git
+                # allow various formats
+                clean_url = state.repo_url.replace("https://", "").replace("http://", "")
+                if "@" in clean_url: clean_url = clean_url.split("@")[-1] # remove existing auth if any
+                
+                # Final URL: https://PAT@github.com/user/repo.git
+                auth_url = f"https://{state.pat_token}@{clean_url}"
+                
+                self._log("Pushing cleanup commit to remote...")
+                subprocess.run(
+                    ["git", "push", "-f", auth_url, branch],
+                    cwd=repo_path, check=True, capture_output=True, text=True
+                )
+                
+                state.git_push_status = "Success (Squashed & Pushed)"
+                logger.info("[OrchestratorAgent] ✅ Git push successful (with PAT).")
+                return
+
+             except Exception as e:
+                state.git_push_status = f"Failed (PAT Push): {str(e)}"
+                logger.error(f"[OrchestratorAgent] PAT push failed: {e}")
+                # Fallthrough to normal push attempt if you want, but usually this is terminal for the push step.
+                return
+
+        # Fallback: System credentials push (no squash, just push what we have)
+        try:
+            # We assume credentials are in the URL or SSH agent is active
+            subprocess.run(
+                ["git", "push", "-u", "origin", branch],
+                cwd=repo_path, check=True, capture_output=True, text=True
+            )
+            state.git_push_status = "Success"
+            logger.info("[OrchestratorAgent] ✅ Git push successful.")
+        except subprocess.CalledProcessError as e:
+            state.git_push_status = f"Failed (No Auth): {e.stderr.strip()[:100]}..."
+            logger.warning(f"[OrchestratorAgent] ❌ Git push failed: {e.stderr}")
+
+    def _deploy_container(self, state: SharedState):
+        """Deploy the fixed app to a random port using Docker."""
+        import random, socket
+        
+        def is_port_in_use(port):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(('localhost', port)) == 0
+
+        # Find a free port
+        port = random.randint(9000, 9999)
+        while is_port_in_use(port):
+            port = random.randint(9000, 9999)
+            
+        logger.info(f"[OrchestratorAgent] Deploying to port {port}...")
+        
+        # Build image name
+        img_tag = f"cicd-deploy-{state.branch_name.lower()}"
+        
+        try:
+            # Check if Dockerfile exists, if not create one
+            dockerfile_path = os.path.join(state.repo_path, "Dockerfile")
+            if not os.path.exists(dockerfile_path):
+                logger.info(f"[OrchestratorAgent] No Dockerfile found, generating one...")
+                self._generate_deployment_dockerfile(state)
+            
+            inner_port = 3000 # Default assumption
+            if state.language == "python": inner_port = 8000
+            
+            # Build
+            build_result = subprocess.run(
+                ["docker", "build", "-t", img_tag, "."],
+                cwd=state.repo_path, capture_output=True, text=True
+            )
+            if build_result.returncode != 0:
+                error_msg = f"Docker build failed:\n{build_result.stderr}"
+                logger.error(f"[OrchestratorAgent] {error_msg}")
+                state.deployment_url = f"Failed: {error_msg}"
+                return state
+            
+            # Run
+            # Helper to find command
+            cmd = []
+            if state.language == "node":
+                 cmd = ["npm", "start"]
+            elif state.language == "python":
+                 # Try to guess: uvicorn, flask, python main.py
+                 if os.path.exists(os.path.join(state.repo_path, "main.py")):
+                      cmd = ["python", "main.py"]
+                 else:
+                      cmd = ["python", "app.py"]
+            
+            container_name = f"deploy-{port}"
+            docker_cmd = [
+                "docker", "run", "-d",
+                "-p", f"{port}:{inner_port}",
+                "--name", container_name,
+                img_tag
+            ] + cmd
+            
+            run_result = subprocess.run(docker_cmd, capture_output=True, text=True)
+            if run_result.returncode != 0:
+                error_msg = f"Docker run failed:\n{run_result.stderr}"
+                logger.error(f"[OrchestratorAgent] {error_msg}")
+                state.deployment_url = f"Failed: {error_msg}"
+                return state
+            
+            state.deployment_url = f"http://localhost:{port}"
+            logger.info(f"[OrchestratorAgent] ✅ Deployed at {state.deployment_url}")
+            
+        except Exception as e:
+            error_msg = f"Deployment exception: {str(e)}"
+            logger.error(f"[OrchestratorAgent] {error_msg}")
+            state.deployment_url = f"Failed: {error_msg}"
 
     def _clone_repo(self, repo_url: str, dest: str) -> bool:
         try:
@@ -318,17 +508,73 @@ class OrchestratorAgent:
             logger.error(f"[OrchestratorAgent] Clone exception: {e}")
             return False
 
-    def _create_branch(self, repo_path: str, branch_name: str):
+    def _create_branch(self, repo_path: str, branch_name: str) -> str:
         env = {**os.environ, "GIT_AUTHOR_NAME": "AI-Agent", "GIT_AUTHOR_EMAIL": "ai@agent.local",
                "GIT_COMMITTER_NAME": "AI-Agent", "GIT_COMMITTER_EMAIL": "ai@agent.local"}
         try:
+            # Capture base commit before checkout
+            base_commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repo_path, text=True
+            ).strip()
+            
             subprocess.run(
                 ["git", "checkout", "-b", branch_name],
                 cwd=repo_path, capture_output=True, text=True, check=True, env=env
             )
-            logger.info(f"[OrchestratorAgent] Branch '{branch_name}' created.")
+            logger.info(f"[OrchestratorAgent] Branch '{branch_name}' created from {base_commit[:7]}.")
+            return base_commit
         except subprocess.CalledProcessError as e:
             logger.warning(f"[OrchestratorAgent] Branch creation warning: {e.stderr}")
+            return ""
+
+    def _generate_deployment_dockerfile(self, state: SharedState):
+        """Generate a basic Dockerfile based on detected language."""
+        dockerfile_content = ""
+        
+        if state.language == "python":
+            dockerfile_content = """FROM python:3.11-slim
+WORKDIR /app
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
+COPY . .
+EXPOSE 8000
+CMD ["python", "main.py"]
+"""
+        elif state.language == "node":
+            dockerfile_content = """FROM node:20-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --legacy-peer-deps 2>/dev/null || true
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+"""
+        elif state.language == "go":
+            dockerfile_content = """FROM golang:1.21-alpine
+WORKDIR /app
+COPY go.* ./
+RUN go mod download 2>/dev/null || true
+COPY . .
+RUN go build -o app .
+EXPOSE 8080
+CMD ["./app"]
+"""
+        else:
+            # Default to Python
+            dockerfile_content = """FROM python:3.11-slim
+WORKDIR /app
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
+COPY . .
+EXPOSE 8000
+CMD ["python", "main.py"]
+"""
+        
+        dockerfile_path = os.path.join(state.repo_path, "Dockerfile")
+        with open(dockerfile_path, "w", encoding="utf-8") as f:
+            f.write(dockerfile_content)
+        logger.info(f"[OrchestratorAgent] Generated Dockerfile for {state.language}")
+
 
     def _build_result(self, state: SharedState) -> dict:
         elapsed = 0.0
@@ -377,8 +623,20 @@ class OrchestratorAgent:
             "all_fixes": all_fixes_list,               # alias for clarity
             "iteration_history": iter_history,         # per-iteration breakdown
             "repeated_failures": state.get_repeated_failures(),
+            "repeated_failures": state.get_repeated_failures(),
             "error": state.error_message,
+            "deployment_url": getattr(state, "deployment_url", None),
+            "git_push_status": getattr(state, "git_push_status", None),
         }
+
+        
+        # Save results.json
+        try:
+             with open("results.json", "w", encoding="utf-8") as f:
+                 json.dump(result, f, indent=2)
+             logger.info("[OrchestratorAgent] Saved results.json")
+        except Exception as e:
+             logger.error(f"[OrchestratorAgent] Failed to save results.json: {e}")
 
         logger.info(f"[OrchestratorAgent] Final result: {json.dumps(result, indent=2)}")
         return result

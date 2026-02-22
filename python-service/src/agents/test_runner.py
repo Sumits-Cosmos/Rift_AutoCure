@@ -18,15 +18,19 @@ logger = logging.getLogger(__name__)
 PYTHON_DOCKERFILE_TEMPLATE = """FROM python:3.11-slim
 WORKDIR /app
 COPY . .
-RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
-RUN pip install --no-cache-dir pytest pytest-cov 2>/dev/null || true
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements-dev.txt 2>/dev/null || true
+RUN pip install --no-cache-dir -r test-requirements.txt 2>/dev/null || true
+RUN pip install --no-cache-dir -r dev-requirements.txt 2>/dev/null || true
+RUN if [ -f setup.py ] || [ -f pyproject.toml ]; then pip install --no-cache-dir -e . 2>/dev/null || true; fi
+RUN pip install --no-cache-dir pytest pytest-cov httpx
 CMD [{cmd_args}]
 """
 
 NODE_DOCKERFILE_TEMPLATE = """FROM node:20-slim
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --legacy-peer-deps 2>/dev/null || true
+RUN npm install --legacy-peer-deps
 COPY . .
 CMD {cmd_json}
 """
@@ -34,7 +38,7 @@ CMD {cmd_json}
 GO_DOCKERFILE_TEMPLATE = """FROM golang:1.21-alpine
 WORKDIR /app
 COPY . .
-RUN go mod download 2>/dev/null || true
+RUN go mod download
 CMD ["go", "test", "./..."]
 """
 
@@ -79,8 +83,17 @@ class TestRunnerAgent:
         repo_path = state.repo_path
         language = state.language
         test_command = state.test_command
-        logger.info(f"[TestRunnerAgent] Running tests via Docker | Language: {language} | Iteration: {state.current_iteration}")
+        
+        # Check execution mode
+        use_docker = os.getenv("USE_DOCKER", "true").lower() == "true"
+        mode_str = "Docker" if use_docker else "System (Local)"
+        
+        logger.info(f"[TestRunnerAgent] Running tests via {mode_str} | Language: {language} | Iteration: {state.current_iteration}")
 
+        if not use_docker:
+            return self._run_local(state, repo_path, test_command)
+
+        # ── DOCKER EXECUTION PATH ──
         build_context = tempfile.mkdtemp(prefix="cicd_heal_")
         try:
             # Copy repo files into build context
@@ -141,6 +154,58 @@ class TestRunnerAgent:
             shutil.rmtree(build_context, ignore_errors=True)
             self._docker_cleanup()
 
+        return state
+
+    def _run_local(self, state: SharedState, repo_path: str, test_command: str) -> SharedState:
+        """Runs tests directly on the host system (Render/Local) without Docker."""
+        logger.info(f"[TestRunnerAgent] Executing command: {test_command}")
+        logger.info(f"[TestRunnerAgent] CWD: {repo_path}")
+        
+        try:
+            # Install dependencies if needed (rudimentary check)
+            # In a real setup, we assume environment is pre-provisioned, but for 
+            # reliability we can try to install deps if requirements.txt exists.
+            # However, for speed in typical healing loops, we assume deps are there.
+            # If explicit installation is needed, we could add a flag.
+            
+            # Split command safely
+            import shlex
+            cmd_args = shlex.split(test_command)
+            
+            # Run the test command
+            # We set a timeout to prevent hanging tests
+            result = subprocess.run(
+                cmd_args,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=300
+            )
+            
+            state.test_stdout = result.stdout
+            state.test_stderr = result.stderr
+            state.test_exit_code = result.returncode
+            
+            logger.info(f"[TestRunnerAgent] Local execution finished. Exit code: {result.returncode}")
+            
+        except FileNotFoundError:
+             err_msg = f"Command not found: {test_command.split()[0]}"
+             logger.error(f"[TestRunnerAgent] {err_msg}")
+             state.test_stderr = err_msg
+             state.test_exit_code = 127
+        except subprocess.TimeoutExpired:
+             err_msg = "Test execution timed out (300s)"
+             logger.error(f"[TestRunnerAgent] {err_msg}")
+             state.test_stderr = err_msg
+             state.test_exit_code = 124
+        except Exception as e:
+             err_msg = f"Exception during local run: {str(e)}"
+             logger.error(f"[TestRunnerAgent] {err_msg}")
+             state.test_stderr = err_msg
+             state.test_exit_code = 1
+             
         return state
 
     def _generate_dockerfile(self, language: str, test_command: str) -> str:

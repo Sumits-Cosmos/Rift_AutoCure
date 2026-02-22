@@ -9,11 +9,11 @@ const BASE_URL = import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:8000';
  * Trigger a new healing agent run.
  * Returns { job_id, status, message }
  */
-export async function startHealingAgent({ repo_url, team_name, leader_name, retry_limit = 5 }) {
+export async function startHealingAgent({ repo_url, team_name, leader_name, retry_limit = 5, pat_token }) {
     const res = await fetch(`${BASE_URL}/run-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_url, team_name, leader_name, retry_limit }),
+        body: JSON.stringify({ repo_url, team_name, leader_name, retry_limit, pat_token }),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -31,6 +31,23 @@ export async function getAgentStatus(jobId) {
     if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || 'Failed to fetch status');
+    }
+    return res.json();
+}
+
+/**
+ * Fetch agent logs for a running job.
+ * Returns { job_id, logs: [{ ts, level, message }] }
+ * Use `since` to fetch only new entries after that timestamp.
+ */
+export async function getAgentLogs(jobId, since = 0) {
+    const url = since > 0
+        ? `${BASE_URL}/agent-logs/${jobId}?since=${since}`
+        : `${BASE_URL}/agent-logs/${jobId}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || 'Failed to fetch logs');
     }
     return res.json();
 }

@@ -1,19 +1,15 @@
 import os
-import google.generativeai as genai
-from dotenv import load_dotenv
+import json
+import logging
 from fastapi import HTTPException
+from dotenv import load_dotenv
+from src.llm.client import LLMClient
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here" or GEMINI_API_KEY == "YOUR_GEMINI_KEY_HERE":
-    print("WARNING: GEMINI_API_KEY not configured! Please set it in python-service/.env")
-    MODEL = None
-else:
-    genai.configure(api_key=GEMINI_API_KEY)
-    # Using gemini-2.5-flash model
-    MODEL = genai.GenerativeModel("gemini-2.5-flash")
+# Use a global client instance (singleton)
+client = LLMClient()
 
 PROMPT_TEMPLATE = """
 You are an API testing generator. Generate comprehensive test cases for the given API endpoints.
@@ -55,71 +51,43 @@ ORDER the tests so that:
 Return ONLY the JSON array, no other text.
 """
 
-import asyncio
-import re
-import json
-
 async def generate_testcases_from_gemini(parsed, max_retries=3):
-    if MODEL is None:
+    """
+    Generate test cases using the centralized LLMClient.
+    Note: max_retries arg is kept for compatibility but client handles its own retries.
+    """
+    if not client.model:
         raise HTTPException(
             status_code=503,
-            detail="Gemini API key not configured. Please set GEMINI_API_KEY in python-service/.env file. Get your key from https://makersuite.google.com/app/apikey"
+            detail="Gemini API key not configured. Please set GEMINI_API_KEY in python-service/.env file."
         )
     
     endpoints = parsed["endpoints"]
-    # Convert endpoints to clean JSON string for the prompt
     endpoints_json = json.dumps(endpoints, indent=2)
     prompt = PROMPT_TEMPLATE.format(endpoints=endpoints_json)
     
-    print(f"DEBUG: Sending prompt with {len(endpoints)} endpoints")
-    print(f"DEBUG: Prompt length: {len(prompt)} chars")
+    logger.info(f"[GeminiGenerator] Sending prompt with {len(endpoints)} endpoints")
 
-    for attempt in range(max_retries):
-        try:
-            response = MODEL.generate_content(prompt)
-            text = response.text.strip()
-            print(f"DEBUG: Received response, length: {len(text)} chars")
-            break
-        except Exception as e:
-            error_msg = str(e)
-            print(f"DEBUG: Full error: {error_msg}")
-            
-            if "API_KEY_INVALID" in error_msg or "API key not valid" in error_msg:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Invalid Gemini API key. Please check your GEMINI_API_KEY in python-service/.env"
-                )
-            
-            # Handle rate limiting with retry
-            if "429" in error_msg or "quota" in error_msg.lower() or "rate" in error_msg.lower():
-                # Extract retry delay if available
-                retry_match = re.search(r'retry in (\d+\.?\d*)', error_msg.lower())
-                wait_time = float(retry_match.group(1)) if retry_match else (15 * (attempt + 1))
-                
-                if attempt < max_retries - 1:
-                    print(f"Rate limited. Waiting {wait_time}s before retry {attempt + 2}/{max_retries}...")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"Gemini API rate limit exceeded. Please wait a moment and try again, or use a different API key."
-                    )
-            
-            # For any other error, show the full error message
-            raise HTTPException(status_code=500, detail=f"Gemini API error: {error_msg}")
+    # Client handles rate limiting and retries internally
+    # Note: generate_content is blocking, but for this use case it's acceptable
+    text = client.generate_content(prompt)
+
+    if not text:
+         raise HTTPException(
+            status_code=500, 
+            detail="Gemini API failed to generate content (Rate limit or Error)."
+         )
 
     # Extract JSON from response
     try:
         start = text.find("[")
         end = text.rfind("]") + 1
         if start == -1 or end == 0:
-            print(f"DEBUG: Could not find JSON array in response: {text[:500]}")
+            logger.error(f"[GeminiGenerator] No JSON array found: {text[:500]}")
             raise HTTPException(status_code=500, detail="Gemini did not return a valid JSON array")
         
         json_text = text[start:end]
         return json.loads(json_text)
     except json.JSONDecodeError as e:
-        print(f"DEBUG: JSON parse error: {e}")
-        print(f"DEBUG: Raw text: {text[:500]}")
+        logger.error(f"[GeminiGenerator] JSON parse error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to parse Gemini response as JSON: {str(e)}")
