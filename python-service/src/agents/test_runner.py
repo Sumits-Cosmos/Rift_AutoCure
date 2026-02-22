@@ -18,19 +18,19 @@ logger = logging.getLogger(__name__)
 PYTHON_DOCKERFILE_TEMPLATE = """FROM python:3.11-slim
 WORKDIR /app
 COPY . .
-RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
+RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt 2>/dev/null || true
 RUN pip install --no-cache-dir -r test-requirements.txt 2>/dev/null || true
 RUN pip install --no-cache-dir -r dev-requirements.txt 2>/dev/null || true
 RUN if [ -f setup.py ] || [ -f pyproject.toml ]; then pip install --no-cache-dir -e . 2>/dev/null || true; fi
-RUN pip install --no-cache-dir pytest pytest-cov httpx 2>/dev/null || true
+RUN pip install --no-cache-dir pytest pytest-cov httpx
 CMD [{cmd_args}]
 """
 
 NODE_DOCKERFILE_TEMPLATE = """FROM node:20-slim
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --legacy-peer-deps 2>/dev/null || true
+RUN npm install --legacy-peer-deps
 COPY . .
 CMD {cmd_json}
 """
@@ -38,7 +38,7 @@ CMD {cmd_json}
 GO_DOCKERFILE_TEMPLATE = """FROM golang:1.21-alpine
 WORKDIR /app
 COPY . .
-RUN go mod download 2>/dev/null || true
+RUN go mod download
 CMD ["go", "test", "./..."]
 """
 

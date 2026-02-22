@@ -728,7 +728,7 @@ export default function HealingAgentPage() {
                         <span>Autonomous CI/CD Healing</span>
                     </div>
                     <h1 className="text-4xl md:text-5xl font-black gradient-text">
-                        AI Repair Agent
+                        Autocure Agent
                     </h1>
                     <p className="text-slate-400 text-base max-w-xl mx-auto">
                         Drop in a buggy repository. The agent clones it, runs tests in Docker, classifies failures, and applies LLM-generated fixes automatically.

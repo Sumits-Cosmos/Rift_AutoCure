@@ -17,11 +17,12 @@ const Navbar = ({ setPage, currentPage }) => {
         className="flex items-center gap-2.5 cursor-pointer group"
         onClick={() => setPage('home')}
       >
-        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-all duration-300">
-          <Cpu size={18} className="text-white" />
+        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-200 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-all duration-300">
+          {/* <Cpu size={18} className="text-white" /> */}
+          <img src="/logo.png" alt="AutoCure Logo" className="w-7 h-7" />
         </div>
         <span className="text-lg font-bold tracking-tight text-white">
-          Cogni<span className="text-indigo-400">test</span>
+          Auto<span className="text-indigo-400">cure</span>
         </span>
       </div>
 
